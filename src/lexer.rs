@@ -86,12 +86,38 @@ impl Lexer {
                     }
                     tokens.push(Token::Num(num));
                 },
-                '(' | ')' | '{' | '}' |'[' | ']'
-                    | '+' | '-' | '*' | '/' |'='
-                    | ';' => {
-                        tokens.push(Token::Symbol(String::from(*c)));
-                        chars.next();
-                }
+                '(' | ')' | '{' | '}' | '[' | ']' | ':'
+                    | '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | ';' => {
+                        let first = chars.next().unwrap(); // consume immediately
+
+                        let token = match (first, chars.peek()) {
+                            ('=', Some('=')) => {
+                                chars.next();
+                                Token::Symbol("==".into())
+                        }
+                            ('!', Some('=')) => {
+                                chars.next();
+                                Token::Symbol("!=".into())
+                        }
+                            ('<', Some('=')) => {
+                                chars.next();
+                                Token::Symbol("<=".into())
+
+                        }
+                            ('>', Some('=')) => {
+                                chars.next();
+                                Token::Symbol(">=".into())
+                        }
+                            (':', Some('=')) => {
+                                chars.next();
+                                Token::Symbol(":=".into())
+                        }
+                            _ => Token::Symbol(first.to_string()),
+
+                        };
+
+                        tokens.push(token);
+                    }
                 c =>  {
                     if c.is_whitespace() {
                         chars.next();
