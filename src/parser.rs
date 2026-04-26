@@ -40,7 +40,7 @@ pub struct VarDec {
     pub val: Option<Box<Expr>>,
 }
 #[derive(Debug)]
-struct Number {
+pub struct Number {
     pub str: String,
     pub id: NodeId,
 }
@@ -66,28 +66,14 @@ impl Expr { // get id. thanks claude!
         }
     }
 }
-#[derive(Debug)]
-pub enum Root {
-    Block(Vec<Stmt>),
-}
-impl Display for Root {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self{
-            Root::Block(b) => {
-                for s in b {
-                    return write!(f, "block stmt: {:?}\n", s);
-                }
-            },
-        }
-        Ok(())
-    }
-}
+pub type Scope = Vec<Stmt>;
+
 
 #[derive(Debug)]
 pub struct Parser {
     lexer: lexer::Lexer,
     current_id: NodeId,
-    pub root: Option<Root>,
+    pub root: Option<Scope>,
 }
 impl Parser {
     fn current(&mut self) -> lexer::Token {
@@ -223,7 +209,7 @@ impl Parser {
     pub fn parse(lexer: lexer::Lexer) -> Self {
         let mut p: Parser = Parser{lexer,root:None, current_id:0};
         let root = p.parse_tls().unwrap_or_else(|err| panic!("Error in tls {:?}", err));
-        p.root =Some(Root::Block(root));
+        p.root =Some(root);
         return p;
     }
 }

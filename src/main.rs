@@ -3,6 +3,7 @@ use std::fs::read_to_string;
 mod lexer;
 mod parser;
 mod symbols;
+mod type_check;
 
 
 fn main()  {
@@ -12,10 +13,14 @@ fn main()  {
     println!("end");
     let p = parser::Parser::parse(lexer); // takes ownership
     match &p.root {
-        Some(b) => println!("Parser root: {}", b),
+        Some(b) =>
+            for s in b {
+                println!("Parser root: {}", s);
+            }
         _ => panic!("Failed to parse"),
     }
-    let resolved = symbols::Resolver::new(p).unwrap();
+    let resolved = symbols::Resolver::new(&p).unwrap();
+    let errs = type_check::TypeChecker::resolve(&resolved, &p);
 }
 
 
