@@ -19,8 +19,9 @@ fn main()  {
             }
         _ => panic!("Failed to parse"),
     }
-    let resolved = symbols::Resolver::new(&p).unwrap();
-    let errs = type_check::TypeChecker::resolve(&resolved, &p);
+    let mut resolved = symbols::Resolver::new(&p).unwrap();
+    let errs = type_check::TypeChecker::resolve(&mut resolved, &p);
+    println!("errs? {:?}", errs);
 }
 
 

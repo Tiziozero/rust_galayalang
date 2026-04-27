@@ -1,27 +1,65 @@
 use crate::parser::{self};
-use std::{collections::HashMap};
+use std::{collections::HashMap, fmt::Display};
 
+impl Display for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Object(o) => write!(f, "{}", o),
+            Self::Type(t) => write!(f, "{}", t),
+        }
+    }
+}
 
 #[derive(Clone,PartialEq, Eq)]
 pub struct Object {
-    is_const: bool,
-    name: String,
-    ty: Option<Type>,
+    pub is_const: bool,
+    pub name: String,
+    pub ty: Option<Type>,
+}
+impl Display for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.ty {
+            Some(t) => {
+                write!(f, "{} type: {}", self.name, t)
+            },
+            None => {
+                write!(f, "{} type: {}", self.name, "no type")
+            },
+        }
+    }
 }
 #[derive(Copy,Clone,PartialEq, Eq)]
 pub struct Arg {
 }
 #[derive(Clone,PartialEq, Eq)]
 pub struct Function {
-    args: Vec<Arg>,
-    return_type: Box<Type>,
+    pub args: Vec<Arg>,
+    pub return_type: Box<Type>,
 }
 #[derive(Clone,PartialEq, Eq)]
 pub enum Type {
-    Integer,
-    Float,
+    UntypedUnsignedInteger,
+    UntypedSignedInteger,
+    UntypedFloat,
+    Int, Float,
     Function(Function),
 }
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "type")
+    }
+}
+impl Type {
+    fn is_untyped(&self) -> bool {
+        match self {
+            Self::UntypedFloat |
+            Self::UntypedSignedInteger |
+            Self::UntypedUnsignedInteger => return true,
+            _ => return false
+        }
+    }
+}
+#[derive(Clone,PartialEq, Eq)]
 pub enum Symbol {
     Object(Object),
     Type(Type),
@@ -137,7 +175,8 @@ impl Resolver {
         if let Some(_) = self.scope_exists(&s.name) {
             return Err(String::from("Value already exists"));
         }
-        println!("{} {}", self.base_scope, self.scopes.len());
+        let name = s.name.clone();
+        // println!("{} {}", self.base_scope, self.scopes.len());
         // else add
         // add to scope
         self.scopes[self.base_scope..]
@@ -147,6 +186,7 @@ impl Resolver {
         // add ref to itself
         self.add_ref(id, id);
 
+        println!("New var {}", name);
         Ok(id)
     }
     fn add_ref(&mut self, id: parser::NodeId, to: parser::NodeId) {
@@ -160,8 +200,12 @@ impl Resolver {
         None
     }
     pub fn get(& self, id: parser::NodeId) -> Option<&Symbol> {
-        if let Some(v) = self.resolved.get(&id) {
-            return Some(v);
+        if let Some(v) = self.symbols.get(&id) {
+            return Some(self.resolved.get(v)?);
+        }
+        println!("Symbol ({}) doesn't exist", id);
+        for (id, v) in &self.resolved {
+            println!("Symbol {} {}",id, v);
         }
         None
     }
