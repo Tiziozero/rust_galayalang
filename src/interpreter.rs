@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 use crate::{parser, symbols};
 #[derive(Clone)]
 struct Fn {
@@ -52,7 +52,26 @@ fn add_vals(a: &Value, b: &Value) -> Result<Value, String> {
     }
     Err(String::from("handle"))
 }
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Int(i) => {
+                write!(f, "int {}", i)
+            }
+            Self::Float(flt) => {
+                write!(f, "float {}", flt)
+            }
+            _=>panic!("handle"),
+
+        }
+    }
+}
 impl Interpreter {
+    pub fn dump(&self) {
+        for (k, v) in &self.values {
+            println!("\t{}:\t {}", k,v);
+        }
+    }
     fn eval_expr(&mut self, expr: &parser::Expr) -> Result<Value, String> {
         match expr {
             parser::Expr::Binop(b) => {
@@ -66,10 +85,19 @@ impl Interpreter {
                 }
             }
             parser::Expr::Symbol(s) => {
-                let id = s.id;
-                let v = self.values.get(&id).
+                let sym = self.symbols.get(s.id).ok_or(String::from(format!(
+                            "Symbol {} doesn't exist in symbol table",
+                            s.symbol)))?;
+
+                if let symbols::Symbol::Object(obj) = sym {
+                let v = self.values.get(&obj.id).
+                    // object id cus it would reference the vardec id
+                    // which is what contains the value
                     ok_or(String::from("Value doesn't exist"))?.clone();
                 return Ok(v);
+                } else {
+                    panic!("symbol not an object. shouldn't happen.");
+                }
             }
             parser::Expr::Number(n) => {
                 let t = self.types.get(&n.id)
@@ -123,6 +151,8 @@ impl Interpreter {
         for s in &p.root {
             interpreter.run_stmt(s)?;
         }
+        println!("interpreter values:");
+        interpreter.dump();
         Ok(())
     }
 }

@@ -15,6 +15,7 @@ pub struct Object {
     pub is_const: bool,
     pub name: String,
     pub ty: Option<Type>,
+    pub id: parser::NodeId, // node id for types and what not
 }
 impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -41,20 +42,27 @@ pub enum Type {
     UntypedUnsignedInteger,
     UntypedSignedInteger,
     UntypedFloat,
-    Int, Float,
+    Uint, Int, Float,
     Function(Function),
 }
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "type")
+        match self {
+            Self::Int => write!(f, "int"),
+            Self::Float => write!(f, "flt"),
+            Self::UntypedUnsignedInteger => write!(f, "untyped uint"),
+            Self::UntypedSignedInteger => write!(f, "untyped int"),
+            Self::UntypedFloat => write!(f, "untyped flt"),
+            _ => panic!("Handle"),
+        }
     }
 }
 impl Type {
     pub fn get_default_from_untyped(&self) -> Self {
         match self {
-            Self::UntypedFloat => Self::Int,
+            Self::UntypedFloat => Self::Float,
             Self::UntypedSignedInteger =>Self::Int,
-            Self::UntypedUnsignedInteger => Self::Float,
+            Self::UntypedUnsignedInteger => Self::Int,
             _ => panic!("Shouldn't happen"),
         }
     }
@@ -63,6 +71,46 @@ impl Type {
             Self::UntypedFloat |
             Self::UntypedSignedInteger |
             Self::UntypedUnsignedInteger => return true,
+            _ => return false
+        }
+    }
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            Self::Int |
+            Self::Float |
+            Self::UntypedFloat |
+            Self::UntypedSignedInteger |
+            Self::UntypedUnsignedInteger => return true,
+            _ => return false
+        }
+    }
+    pub fn is_float(&self) -> bool {
+        match self {
+            Self::Float |
+            Self::UntypedFloat => return true,
+            _ => return false
+        }
+    }
+    pub fn is_unsigned(&self) -> bool {
+        match self {
+            Self::UntypedUnsignedInteger |
+            Self::Uint => return true,
+            _ => return false
+        }
+    }
+    pub fn is_signed(&self) -> bool {
+        match self {
+            Self::UntypedSignedInteger |
+            Self::Int => return true,
+            _ => return false
+        }
+    }
+    pub fn is_integer(&self) -> bool {
+        match self {
+            Self::UntypedUnsignedInteger |
+            Self::UntypedSignedInteger |
+            Self::Uint |
+            Self::Int => return true,
             _ => return false
         }
     }
@@ -80,6 +128,7 @@ impl Symbol {
         }
     }
 }
+
 
 pub struct Scope {
     symbols: HashMap<String, parser::NodeId>,
@@ -112,6 +161,11 @@ pub struct Resolver {
 }
 
 impl Resolver {
+    pub fn dump(&self) {
+        for (k, v) in &self.resolved {
+            println!("\t{} {}", k, v);
+        }
+    }
     fn resolve_stmt(&mut self, stmt: &parser::Stmt) -> Result<(), String> {
         match stmt {
             parser::Stmt::Expr(expr) => {
@@ -150,6 +204,7 @@ impl Resolver {
                     name: v.s.symbol.clone(),
                     ty: None,
                     is_const:false,
+                    id:v.s.id,
                 };
                 // add
                 self.new_obj(v.s.id, o)?;
@@ -234,7 +289,18 @@ impl Resolver {
     }
     pub fn set_obj_type(&mut self, id: parser::NodeId, t: Type)
         -> Result<(), String> {
-        let mut s = self.resolved.get(&id).unwrap().clone();
+        for (k,v) in &self.symbols {
+            println!("k {} v {}", k, v);
+        }
+        for (k,v) in &self.resolved {
+            println!("res\tk {} v {}", k, v.name());
+        }
+        let resolved_id = self.symbols.get(&id)
+            .ok_or(String::from(format!(
+                        "Symbol {} doesn't exist as a symbol?.", id)))?;
+        let mut s = self.resolved.get(resolved_id)
+            .ok_or(String::from(format!(
+                        "Symbol {} doesn't exist/not resolved.", id)))?;
         if let Symbol::Object(obj) = &mut s {
             // fail if it has a type
             if let Some(_) = obj.ty {
