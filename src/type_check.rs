@@ -10,16 +10,18 @@ pub struct TypeChecker<'a> {
 }
 impl<'a> TypeChecker<'a> {
     fn handle_vardec(&mut self, vardec: &parser::VarDec) -> Result<(),String> {
+        let id = vardec.s.id;
         let obj: symbols::Object;
-        if let symbols::Symbol::Object(symbol_var) = self.symbols.get(vardec.s.id).unwrap() {
+        if let symbols::Symbol::Object(symbol_var) = self.symbols.get(id).unwrap() {
             obj = symbol_var.clone();
         } else {
             return Err(String::from("vardec not resolved?"));
         }
+        println!("Checking vardec {}", &obj.name);
         if let Some(val) = &vardec.val {
             self.resolve_expr(val)?;
             // get value type
-            let val_t = self.resolved.get(&val.id()).unwrap().clone();
+            let mut val_t = self.resolved.get(&val.id()).unwrap().clone();
             // if obj has a type compare
             if let Some(var_t) = obj.ty.clone() {
                 if val_t != var_t {
@@ -27,13 +29,26 @@ impl<'a> TypeChecker<'a> {
                                 "vardec value type doesn't match vardec type {}:{}",
                                 var_t, val_t)));
                 }
+                self.symbols.set_obj_type(vardec.s.id, val_t.clone())?;
             } else { // else set obj type
-                self.symbols.set_onj_type(vardec.s.id, val_t.clone())?;
+                println!("obj {} has no type", &obj.name);
+                // if it's untyped then set both val and s
+                if val_t.is_untyped() {
+                    println!("setting obj {} type", &obj.name);
+                    val_t = val_t.get_default_from_untyped();
+                    self.symbols.set_obj_type(vardec.val
+                        .as_ref().unwrap().id(), val_t.clone())?;
+                }
+                self.symbols.set_obj_type(vardec.s.id, val_t.clone())?;
             }
-
-            return Ok(());
+        } else { // no value so must have type
+            if let Some(_) = obj.ty {
+                self.resolved.insert(id, obj.ty.unwrap()).unwrap();
+            } else {
+                return Err(String::from("object has no type AND no value. Can't have that"));
+            }
         }
-        Err(String::from("Handle"))
+        return Ok(());
     }
     fn resolve_expr(&mut self, e: &parser::Expr) ->Result<(),String> {
         match e {
@@ -42,7 +57,8 @@ impl<'a> TypeChecker<'a> {
             }
             Expr::Number(n) => {
                 // set to untyped int
-                self.resolved.insert(n.id, symbols::Type::UntypedUnsignedInteger);
+                self.resolved.insert(n.id,
+                    symbols::Type::UntypedUnsignedInteger);
             }
             Expr::Symbol(s) => {
                 // get symbol in symbol table and make sure it's an object
@@ -90,21 +106,18 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
     pub fn resolve(symbols: &'a mut symbols::Resolver, p: &Parser)
-        ->Result<(),String> {
+        ->Result<HashMap<parser::NodeId, symbols::Type>,String> {
         let mut c = TypeChecker{
             symbols,
             fn_data: Vec::new(),
             resolved: HashMap::new()};
 
-        if let Some(scope) = &p.root {
-            c.resolve_scope(scope)?;
-            if c.fn_data.len() != 0 { // make sure to exit all scopes before rreturning
-                return Err(String::from(format!("Haven't exited all scopes? {}",
+        let scope = &p.root;
+        c.resolve_scope(scope)?;
+        if c.fn_data.len() != 0 { // make sure to exit all scopes before rreturning
+            return Err(String::from(format!("Haven't exited all scopes? {}",
                         c.fn_data.len())));
-            }
-            Ok(())
-        } else {
-            Err(String::from("No root"))
         }
+        Ok(c.resolved)
     }
 }

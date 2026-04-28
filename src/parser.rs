@@ -12,46 +12,46 @@ pub enum ParserErr {
     Invalid(String),
     Expected(String),
 }
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub enum BinopKind {
     Add, Sub, Mlt, Div, Assign
 }
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub struct Binop {
     pub left: Box<Expr>,
     pub right: Box<Expr>,
     pub kind: BinopKind,
     pub id: NodeId,
 }
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub enum Type {
     Base(String),
     Pointer(Box<Type>),
 }
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub struct Symbol {
     pub symbol: String,
     pub id: NodeId,
 }
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub struct VarDec {
     pub s: Symbol,
     pub ty: Option<Type>,
     pub val: Option<Box<Expr>>,
 }
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub struct Number {
     pub str: String,
     pub id: NodeId,
 }
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub enum Expr {
     Binop(Binop),
     Symbol(Symbol),
     Number(Number),
     VarDec(VarDec),
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Stmt {
     Expr(Expr),
     // if/else, fn dec, struct dec and what not
@@ -73,7 +73,7 @@ pub type Scope = Vec<Stmt>;
 pub struct Parser {
     lexer: lexer::Lexer,
     current_id: NodeId,
-    pub root: Option<Scope>,
+    pub root: Scope,
 }
 impl Parser {
     fn current(&mut self) -> lexer::Token {
@@ -207,9 +207,9 @@ impl Parser {
         return self.current_id;
     }
     pub fn parse(lexer: lexer::Lexer) -> Self {
-        let mut p: Parser = Parser{lexer,root:None, current_id:0};
+        let mut p: Parser = Parser{lexer,root:Vec::new(), current_id:0};
         let root = p.parse_tls().unwrap_or_else(|err| panic!("Error in tls {:?}", err));
-        p.root =Some(root);
+        p.root=root;
         return p;
     }
 }

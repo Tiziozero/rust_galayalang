@@ -4,6 +4,7 @@ mod lexer;
 mod parser;
 mod symbols;
 mod type_check;
+mod interpreter;
 
 
 fn main()  {
@@ -12,16 +13,11 @@ fn main()  {
         panic!("error {}", err);});
     println!("end");
     let p = parser::Parser::parse(lexer); // takes ownership
-    match &p.root {
-        Some(b) =>
-            for s in b {
-                println!("Parser root: {}", s);
-            }
-        _ => panic!("Failed to parse"),
-    }
     let mut resolved = symbols::Resolver::new(&p).unwrap();
-    let errs = type_check::TypeChecker::resolve(&mut resolved, &p);
-    println!("errs? {:?}", errs);
+    let types = type_check::TypeChecker::resolve(&mut resolved, &p).unwrap();
+    // owns it all now
+    interpreter::Interpreter::run(p, resolved, types).unwrap();
+    println!("Run successfully");
 }
 
 

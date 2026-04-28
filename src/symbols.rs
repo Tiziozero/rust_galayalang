@@ -50,7 +50,15 @@ impl Display for Type {
     }
 }
 impl Type {
-    fn is_untyped(&self) -> bool {
+    pub fn get_default_from_untyped(&self) -> Self {
+        match self {
+            Self::UntypedFloat => Self::Int,
+            Self::UntypedSignedInteger =>Self::Int,
+            Self::UntypedUnsignedInteger => Self::Float,
+            _ => panic!("Shouldn't happen"),
+        }
+    }
+    pub fn is_untyped(&self) -> bool {
         match self {
             Self::UntypedFloat |
             Self::UntypedSignedInteger |
@@ -162,10 +170,9 @@ impl Resolver {
             scopes: scopes,
             errors: Vec::new(),
         };
-        if let Some(root) = &p.root {
-            for n in root {
-                s.resolve_stmt(&n)?;
-            }
+        let root = &p.root;
+        for n in root {
+            s.resolve_stmt(&n)?;
         }
         Ok(s)
     }
@@ -225,7 +232,7 @@ impl Resolver {
         }
         None
     }
-    pub fn set_onj_type(&mut self, id: parser::NodeId, t: Type)
+    pub fn set_obj_type(&mut self, id: parser::NodeId, t: Type)
         -> Result<(), String> {
         let mut s = self.resolved.get(&id).unwrap().clone();
         if let Symbol::Object(obj) = &mut s {
