@@ -37,7 +37,7 @@ impl PartialEq for Value {
     }
 }
 pub struct Interpreter {
-    values: HashMap<parser::NodeId, Value>,
+    values: HashMap<symbols::SymbolId, Value>,
     symbols: symbols::Resolver,
     types: HashMap<parser::NodeId, symbols::Type>,
 }
@@ -69,7 +69,7 @@ impl Display for Value {
 impl Interpreter {
     pub fn dump(&self) {
         for (k, v) in &self.values {
-            println!("\t{}:\t {}", k,v);
+            println!("\t{:?}:\t {}", k,v);
         }
     }
     fn eval_expr(&mut self, expr: &parser::Expr) -> Result<Value, String> {
@@ -111,10 +111,13 @@ impl Interpreter {
                     }
                     _ => return Err(String::from("Trying to convert num lit to some other type that is not numeric")),
                 }
-            },
+            }
             parser::Expr::VarDec(v) => {
-                let id = v.s.id;
-                let t = self.types.get(&id)
+                let s = match self.symbols.get(v.s.id).unwrap() {
+                    symbols::Symbol::Object(o) => o.clone(), // clone idc
+                    _=>panic!("Wjat"),
+                };
+                let t = self.types.get(&v.s.id)
                     .ok_or(String::from(format!("vardec {:?} has no type", v.s)))?;
                 let value: Value;
                 if let Some(val) = &v.val {
@@ -130,7 +133,7 @@ impl Interpreter {
                         _ => panic!("handle"),
                     }
                 }
-                self.values.insert(id, value.clone());
+                self.values.insert(s.id, value.clone());
                 return Ok(value);
             },
             // _ => panic!("handle"),

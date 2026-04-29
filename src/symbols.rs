@@ -15,7 +15,7 @@ pub struct Object {
     pub is_const: bool,
     pub name: String,
     pub ty: Option<Type>,
-    pub id: parser::NodeId, // node id for types and what not
+    pub id: SymbolId, // node id for types and what not
 }
 impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -131,16 +131,16 @@ impl Symbol {
 
 
 pub struct Scope {
-    symbols: HashMap<String, parser::NodeId>,
+    symbols: HashMap<String, SymbolId>, // points to resolved
 }
 impl Scope {
     fn new() ->Self {
         Self{ symbols: HashMap::new() }
     }
-    fn add(&mut self, name: String, id: parser::NodeId) {
+    fn add(&mut self, name: String, id: SymbolId) {
         self.symbols.insert(name, id);
     }
-    fn get(&self, name: &String) -> Option<parser::NodeId> {
+    fn get(&self, name: &String) -> Option<SymbolId> {
         if let Some(v) = self.symbols.get(name) {
             return Some(*v);
         }
@@ -153,14 +153,20 @@ pub struct Resolver {
     base_scope: usize,
     globals: Scope,
     // value points to resolved
-    symbols: HashMap<parser::NodeId, parser::NodeId>,
+    symbols: HashMap<parser::NodeId, SymbolId>,
     // stores resolved symbols with NodeId being declaration node id
     // stores resolved symbols with NodeId being declaration node id
-    resolved: HashMap<parser::NodeId, Symbol>,
+    resolved: HashMap<SymbolId, Symbol>,
     errors: Vec<String>,
+    current_id: SymbolId,
 }
 
+pub type SymbolId = usize;
 impl Resolver {
+    fn next_id(&mut self) -> SymbolId {
+        self.current_id += 1;
+        self.current_id
+    }
     pub fn dump(&self) {
         for (k, v) in &self.resolved {
             println!("\t{} {}", k, v);
@@ -200,14 +206,15 @@ impl Resolver {
                 if let Some(_) = &v.ty {
                     panic!("handle type");
                 }
+                let id = self.next_id();
                 let o = Object{
                     name: v.s.symbol.clone(),
                     ty: None,
                     is_const:false,
-                    id:v.s.id,
+                    id:id,
                 };
                 // add
-                self.new_obj(v.s.id, o)?;
+                self.new_obj(v.s.id, id, o)?;
             },
             parser::Expr::Number(_) => {},
             // _ => panic!("Handle {:?}", expr),
@@ -224,6 +231,7 @@ impl Resolver {
             resolved: HashMap::new(),
             scopes: scopes,
             errors: Vec::new(),
+            current_id: 0,
         };
         let root = &p.root;
         for n in root {
@@ -231,8 +239,8 @@ impl Resolver {
         }
         Ok(s)
     }
-    fn new_obj(&mut self, id: parser::NodeId, s: Object) -> 
-        Result<parser::NodeId, String>{
+    fn new_obj(&mut self, node_id: parser::NodeId, id: SymbolId, s: Object) -> 
+        Result<SymbolId, String>{
             // check if it exists
         if let Some(_) = self.scope_exists(&s.name) {
             return Err(String::from("Value already exists"));
@@ -246,18 +254,18 @@ impl Resolver {
         // add to resolved
         self.resolved.insert(id, Symbol::Object(s));
         // add ref to itself
-        self.add_ref(id, id);
+        self.add_ref(node_id, id);
 
         println!("New var {}", name);
         Ok(id)
     }
-    fn add_ref(&mut self, id: parser::NodeId, to: parser::NodeId) {
+    fn add_ref(&mut self, id: parser::NodeId, to: SymbolId) {
         self.symbols.insert(id, to);
     }
     fn scope_exists(&self, name: &String) -> Option<&Symbol> {
         // check if name exists in scope
         if let Some(sym) = self.scopes[self.base_scope..].last()?.get(name) {
-            return self.get(sym);
+            return self.resolved.get(&sym);
         }
         None
     }
@@ -265,24 +273,22 @@ impl Resolver {
         if let Some(v) = self.symbols.get(&id) {
             return Some(self.resolved.get(v)?);
         }
-        println!("Symbol ({}) doesn't exist", id);
-        for (id, v) in &self.resolved {
-            println!("Symbol {} {}",id, v);
-        }
+        println!("Symbol ({:?}) doesn't exist", id);
+        self.dump();
         None
     }
-    fn get_obj_ref(&self, name: &String) -> Option<parser::NodeId> {
+    fn get_obj_ref(&self, name: &String) -> Option<SymbolId> {
         // try all scopes from last to first
         for s in self.scopes[self.base_scope..].iter().rev() {
             let id = s.get(name)?;
             // if it exists and is an object
-            if let Some(Symbol::Object(_)) = self.get(id) {
+            if let Some(Symbol::Object(_)) = self.resolved.get(&id) {
                 return Some(id);
             }
         }
         // try globals next ig?
         let id = self.globals.get(name)?;
-        if let Some(Symbol::Object(_)) = self.get(id) {
+        if let Some(Symbol::Object(_)) = self.resolved.get(&id) {
             return Some(id);
         }
         None
@@ -290,17 +296,17 @@ impl Resolver {
     pub fn set_obj_type(&mut self, id: parser::NodeId, t: Type)
         -> Result<(), String> {
         for (k,v) in &self.symbols {
-            println!("k {} v {}", k, v);
+            println!("k {:?} v {}", k, v);
         }
         for (k,v) in &self.resolved {
             println!("res\tk {} v {}", k, v.name());
         }
         let resolved_id = self.symbols.get(&id)
             .ok_or(String::from(format!(
-                        "Symbol {} doesn't exist as a symbol?.", id)))?;
+                        "Symbol {:?} doesn't exist as a symbol?.", id)))?;
         let mut s = self.resolved.get(resolved_id)
             .ok_or(String::from(format!(
-                        "Symbol {} doesn't exist/not resolved.", id)))?;
+                        "Symbol {:?} doesn't exist/not resolved.", id)))?;
         if let Symbol::Object(obj) = &mut s {
             // fail if it has a type
             if let Some(_) = obj.ty {
@@ -308,7 +314,8 @@ impl Resolver {
             }
             let mut new = obj.clone();
             new.ty = Some(t);
-            self.resolved.insert(id, Symbol::Object(new));
+            let res_id = self.symbols.get(&id).unwrap();
+            self.resolved.insert(*res_id, Symbol::Object(new));
             Ok(())
         } else {
             Err(String::from("symbol not a object."))

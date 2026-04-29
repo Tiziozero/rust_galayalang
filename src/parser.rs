@@ -1,5 +1,7 @@
 use std::fmt::Display;
-pub type NodeId = usize; // use this for nodes ig?
+// type NodeId = usize; // use this for nodes ig?
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct NodeId(usize);
 macro_rules! usr_msg {
     (fmt: 'static &str, token: lexer::Token) => {
         println!("Parser Error: {} {}", fmt, token);
@@ -72,7 +74,7 @@ pub type Scope = Vec<Stmt>;
 #[derive(Debug)]
 pub struct Parser {
     lexer: lexer::Lexer,
-    current_id: NodeId,
+    current_id: usize,
     pub root: Scope,
 }
 impl Parser {
@@ -258,7 +260,7 @@ impl Parser {
     }
     fn id_next(&mut self) -> NodeId {
         self.current_id += 1;
-        return self.current_id;
+        return NodeId(self.current_id);
     }
     pub fn parse(lexer: lexer::Lexer) -> Self {
         let mut p: Parser = Parser{lexer,root:Vec::new(), current_id:0};

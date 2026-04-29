@@ -11,7 +11,7 @@ pub struct TypeChecker<'a> {
 impl<'a> TypeChecker<'a> {
     fn dump(&self) {
         for (k, v) in &self.resolved {
-            println!("\t{} {}", k, v);
+            println!("\t{:?} {}", k, v);
         }
     }
     fn propagate_type(&mut self, t: &symbols::Type, expr: &parser::Expr) {
@@ -21,7 +21,7 @@ impl<'a> TypeChecker<'a> {
                 self.propagate_type(t, &b.right);
             },
             parser::Expr::Number(n) => {
-                println!("updating type for id {} to {}", n.id, t);
+                println!("updating type for id {:?} to {}", n.id, t);
                 self.resolved.insert(n.id, t.clone());
             }
             parser::Expr::Symbol(_) => {
@@ -163,7 +163,7 @@ impl<'a> TypeChecker<'a> {
                 rt = self.resolved.get(&b.right.id()).unwrap().clone();
                 if lt != rt {
                     return Err(String::from(format!(
-                                "Binop types don't match: {}:{}vs{}:{}.", b.left.id(),lt, b.right.id(),rt)));
+                                "Binop types don't match: {:?}:{}vs{:?}:{}.", b.left.id(),lt, b.right.id(),rt)));
                 }
                 self.resolved.insert(b.id, lt.clone());
             }
