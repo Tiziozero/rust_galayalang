@@ -1,10 +1,18 @@
 use std::{fmt};
+#[derive(Clone,Debug)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+fn span(s:usize,e:usize)->Span {
+    Span{start:s, end:e}
+}
 #[derive(Clone)]
 pub enum Token {
-    Ident(String),
-    Num(String),
-    Keyword(String),
-    Symbol(String), // can be double like "+="
+    Ident(String,Span),
+    Num(String,Span),
+    Keyword(String,Span),
+    Symbol(String,Span), // can be double like "+="
     EOF,
 }
 #[derive(Debug)]
@@ -55,7 +63,9 @@ impl Lexer {
     pub fn from_code(code: &String) -> Result<Self, LexerErr>  {
         let mut tokens: Vec<Token> = vec![];
         let mut chars = code.chars().peekable();
+        let mut i = 0;
         while let Some(c) = chars.peek() {
+            let start = i;
             match c {
                 'a'..='z' | 'A'..='Z' | '_' => {
                     let mut name = String::new();
@@ -65,13 +75,13 @@ impl Lexer {
                                 name.push(*c),
                             _ => break
                         }
-                        chars.next(); // advance
+                        i += chars.next().unwrap().len_utf8(); // advance
                     }
                     match name.as_str() {
                         "fn"| "if" | "else" =>
-                            tokens.push(Token::Keyword(name)),
+                            tokens.push(Token::Keyword(name,span(start, i))),
                         _ => 
-                            tokens.push(Token::Ident(name)),
+                            tokens.push(Token::Ident(name,span(start,i))),
                     }
                 },
                 '0'..='9' => {
@@ -82,9 +92,9 @@ impl Lexer {
                                 num.push(*c),
                             _ => break
                         }
-                        chars.next(); // advance
+                        i+=chars.next().unwrap().len_utf8(); // advance
                     }
-                    tokens.push(Token::Num(num));
+                    tokens.push(Token::Num(num,span(start,i)));
                 },
                 '(' | ')' | '{' | '}' | '[' | ']' | ':'
                     | '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | ';' => {
@@ -92,27 +102,27 @@ impl Lexer {
 
                         let token = match (first, chars.peek()) {
                             ('=', Some('=')) => {
-                                chars.next();
-                                Token::Symbol("==".into())
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol("==".into(),span(start,i))
                         }
                             ('!', Some('=')) => {
-                                chars.next();
-                                Token::Symbol("!=".into())
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol("!=".into(),span(start,i))
                         }
                             ('<', Some('=')) => {
-                                chars.next();
-                                Token::Symbol("<=".into())
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol("<=".into(),span(start,i))
 
                         }
                             ('>', Some('=')) => {
-                                chars.next();
-                                Token::Symbol(">=".into())
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol(">=".into(),span(start,i))
                         }
                             (':', Some('=')) => {
-                                chars.next();
-                                Token::Symbol(":=".into())
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol(":=".into(),span(start,i))
                         }
-                            _ => Token::Symbol(first.to_string()),
+                            _ => Token::Symbol(first.to_string(),span(start,i)),
 
                         };
 
@@ -138,10 +148,10 @@ impl Lexer {
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Token::Ident(i) => { return write!(f, "ident {:?}", i);}
-            Token::Num(n) => { return write!(f, "number {:?}", n);}
-            Token::Keyword(k) => { return write!(f, "kw {:?}", k);}
-            Token::Symbol(s) => { return write!(f, "symbol {:?}", s);}
+            Token::Ident(i,_) => { return write!(f, "ident {:?}", i);}
+            Token::Num(n,_) => { return write!(f, "number {:?}", n);}
+            Token::Keyword(k,_) => { return write!(f, "kw {:?}", k);}
+            Token::Symbol(s,_) => { return write!(f, "symbol {:?}", s);}
             Token::EOF => { return write!(f, "eof");}
         }
     }
@@ -150,10 +160,10 @@ impl fmt::Debug for Token {
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Token::Ident(i) => { return write!(f, "ident {:?}", i);}
-            Token::Num(n) => { return write!(f, "number {:?}", n);}
-            Token::Keyword(k) => { return write!(f, "kw {:?}", k);}
-            Token::Symbol(s) => { return write!(f, "symbol {:?}", s);}
+            Token::Ident(i,span) => { return write!(f, "ident {:?} at {:?}", i,span);}
+            Token::Num(n,span) => { return write!(f, "number {:?} at {:?}", n,span);}
+            Token::Keyword(k,span) => { return write!(f, "kw {:?} at {:?}", k,span);}
+            Token::Symbol(s,span) => { return write!(f, "symbol {:?} at {:?}", s,span);}
             Token::EOF => { return write!(f, "eof");}
         }
     }

@@ -198,7 +198,7 @@ impl Resolver {
                     self.resolve_expr(&val)?; // check val is ok
                 }
                 if let Some(_) = &v.ty {
-                    panic!("handle");
+                    panic!("handle type");
                 }
                 let o = Object{
                     name: v.s.symbol.clone(),

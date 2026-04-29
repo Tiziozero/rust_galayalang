@@ -5,7 +5,7 @@ macro_rules! usr_msg {
         println!("Parser Error: {} {}", fmt, token);
     };
 }
-use crate::lexer;
+use crate::lexer::{self, Token};
 
 #[derive(Debug)]
 pub enum ParserErr {
@@ -109,16 +109,16 @@ impl Parser {
     fn parse_primary(&mut self) -> Result<Expr, ParserErr> {
         let t =  self.next();
         match t {
-            lexer::Token::Ident(s) => {
+            lexer::Token::Ident(s,_span) => {
                 return Ok(Expr::Symbol(Symbol { symbol: s, id: self.id_next() }));
             },
-            lexer::Token::Num(n) => {
+            lexer::Token::Num(n,_span) => {
                 return Ok(Expr::Number(Number { str: n, id: self.id_next() }));
             }
-            lexer::Token::Symbol(s) if s.eq("(") => {
+            lexer::Token::Symbol(s,_span) if s.eq("(") => {
                 self.next();
                 let expr = self.parse_expr()?;
-                if let lexer::Token::Symbol(_) = self.current() {
+                if let lexer::Token::Symbol(_,_) = self.current() {
                     self.next();
                     return Ok(expr);
                 } else {
@@ -134,7 +134,7 @@ impl Parser {
     fn parse_binop(&mut self) -> Result<Expr, ParserErr> {
         let lhs = self.parse_primary()?;
         match self.current() {
-            lexer::Token::Symbol(s) => {
+            lexer::Token::Symbol(s,_span) => {
                 match s.as_str() {
                     "+" | "-" | "*" | "/" | "="  => {
                         self.next();
@@ -149,33 +149,87 @@ impl Parser {
                                     "*" => BinopKind::Mlt,
                                     "/" => BinopKind::Div,
                                     "=" => BinopKind::Assign,
-                                    _ => return Err(ParserErr::Invalid(String::from("Invalid symbol in binop?")))
+                                    _ => return Err(ParserErr::Invalid(
+                                            String::from(
+                                                "Invalid symbol in binop?")))
                                 }}));
                     },
-                    ":=" => {
-                        self.next();
-                        match lhs {
-                            Expr::Symbol(s) => {
-                                let rhs = self.parse_expr()?;
-                                return Ok(Expr::VarDec(VarDec {
-                                    s: s,
-                                    ty: Option::None,
-                                    val: Option::Some(Box::new(rhs))
-                                }));
-                            }
-                            _ =>
-                                return Err(ParserErr::Invalid(String::from(
-                                            "vardec target must be a symbol"))),
-                        }
-                    },
+                    ":=" | ":" | "::" => return self.parse_vardec(lhs),
                     _=> return Ok(lhs),
                 }
             }
             _ => return Ok(lhs),
         }
     }
+    fn parse_vardec(&mut self, lhs: Expr) -> Result<Expr, ParserErr> {
+        let symbol: Symbol;
+        match lhs {
+            Expr::Symbol(s) =>symbol = s,
+            _ => {
+                return Err(ParserErr::Invalid(String::from(
+                            "vardec lhs must be a symbol.")));
+            }
+        }
+        match self.current() {
+            lexer::Token::Symbol(s,_span) => {
+                match s.as_str() {
+                    ":=" => { // "a := ..."
+                        self.next();
+                        let rhs = self.parse_expr()?;
+                        return Ok(Expr::VarDec(VarDec {
+                            s: symbol,
+                            ty: Option::None,
+                            val: Option::Some(Box::new(rhs))
+                        }));
+                    },
+                    ":" => { // "a : type..."
+                        self.next(); // consume token
+                        let t = self.parse_type()?;
+                        // "a: type = ..." or "a: type"
+                        match self.current() {
+                            // "a: type = ..."
+                            lexer::Token::Symbol(next,_span)
+                                if next.as_str() == "=" => {
+                                let rhs = self.parse_expr()?;
+                                return Ok(Expr::VarDec(VarDec{
+                                    s: symbol,
+                                    ty: Some(t),
+                                    val: Some(Box::new(rhs)),
+                                }));
+                            }
+                            // "a: type"
+                            _ => return Ok(Expr::VarDec(VarDec{
+                                    s: symbol,
+                                    ty: Some(t),
+                                    val: None,
+                                })),
+                        }
+                    },
+                    _ => panic!("Handle"),
+                }
+            },
+            _=>panic!("expected vardec symbol"),
+        }
+    }
     fn parse_expr(&mut self) -> Result<Expr, ParserErr> {
         self.parse_binop()
+    }
+    fn parse_type(&mut self) -> Result<Type, ParserErr> {
+        match self.current() {
+            lexer::Token::Symbol(s,_span) => {
+                match s.as_str() {
+                    "*" => {
+                        self.next();
+                        return Ok(Type::Pointer(Box::new(self.parse_type()?)));
+                    },
+                    _ => panic!("invalid symbol in type"),
+                }
+            }
+            lexer::Token::Ident(i,_span) => {
+                return Ok(Type::Base(i));
+            },
+            _ => panic!("Handle"),
+        }
     }
     fn parse_tls(&mut self) -> Result<Vec<Stmt>, ParserErr> {
         let mut stmts: Vec<Stmt> = vec![];
@@ -183,7 +237,7 @@ impl Parser {
             let t = self.current();
             match t {
                 lexer::Token::EOF => break,
-                lexer::Token::Keyword(kw) => {
+                lexer::Token::Keyword(kw,_span) => {
                     match kw.as_str() {
                         "fn" => stmts.push(self.parse_fn().unwrap()),
                         "struct" => stmts.push(self.parse_struct().unwrap()),
@@ -194,7 +248,7 @@ impl Parser {
                     stmts.push(Stmt::Expr(self.parse_expr()?)),
             }
             // consume semicolon
-            if let lexer::Token::Symbol(s) = self.current() {
+            if let lexer::Token::Symbol(s,_span) = self.current() {
                 if s == ";" {
                     self.next();
                 }
