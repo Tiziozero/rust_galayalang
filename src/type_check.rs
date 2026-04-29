@@ -77,7 +77,8 @@ impl<'a> TypeChecker<'a> {
                 self.resolved.insert(id, obj.ty.unwrap()).unwrap();
                 return Ok(());
             } else {
-                return Err(String::from("object has no type AND no value. Can't have that"));
+                return Err(String::from(
+                        "object has no type AND no value. Can't have that"));
             }
         }
     }
