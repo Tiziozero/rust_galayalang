@@ -4,8 +4,8 @@ use std::{collections::HashMap, fmt::Display};
 impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Object(o) => write!(f, "{}", o),
-            Self::Type(t) => write!(f, "{}", t),
+            Self::Object(o) => write!(f, "obj {}", o),
+            Self::Type(t) => write!(f, "type {}", t),
         }
     }
 }
@@ -124,7 +124,8 @@ impl Symbol {
     fn name(&self) -> String {
         match self {
             Symbol::Object(v) => v.name.clone(),
-            _ => panic!("Handle"),
+            Symbol::Type(t) => t.to_string(),
+            // _ => panic!("Handle"),
         }
     }
 }
@@ -168,8 +169,9 @@ impl Resolver {
         self.current_id
     }
     pub fn dump(&self) {
-        for (k, v) in &self.resolved {
-            println!("\t{} {}", k, v);
+        for (k, sk) in &self.symbols {
+            let v = self.resolved.get(sk).unwrap();
+            println!("\t{:?} {}", k, v);
         }
     }
     fn resolve_stmt(&mut self, stmt: &parser::Stmt) -> Result<(), String> {
@@ -184,6 +186,13 @@ impl Resolver {
                 };
             },
             // _ => panic!("Handle {}", n),
+        }
+    }
+    fn resolve_type(&mut self, t: &parser::Type) -> Result<&Type, String> {
+        match t {
+            parser::Type::Base(base) => self.get_type_from_name(base),
+            _ => panic!("Handle"),
+            
         }
     }
     fn resolve_expr(&mut self, expr: &parser::Expr) -> Result<(), String> {
@@ -203,16 +212,17 @@ impl Resolver {
                 if let Some(val) = &v.val {
                     self.resolve_expr(&val)?; // check val is ok
                 }
-                if let Some(_) = &v.ty {
-                    panic!("handle type");
-                }
                 let id = self.next_id();
-                let o = Object{
+                let mut o = Object{
                     name: v.s.symbol.clone(),
                     ty: None,
                     is_const:false,
                     id:id,
                 };
+                if let Some(vt) = &v.ty {
+                    let t = self.resolve_type(&vt)?;
+                    o.ty = Some(t.clone());
+                }
                 // add
                 self.new_obj(v.s.id, id, o)?;
             },
@@ -220,6 +230,16 @@ impl Resolver {
             // _ => panic!("Handle {:?}", expr),
         }
         Ok(())
+    }
+    fn add_base_types(&mut self) {
+        let t1 = Symbol::Type(Type::Int);
+        let t1id = self.next_id();
+        self.resolved.insert(t1id, t1);
+        self.globals.add(String::from("int"), t1id);
+        let t2 = Symbol::Type(Type::Float);
+        let t2id = self.next_id();
+        self.resolved.insert(t2id, t2);
+        self.globals.add(String::from("float"), t2id);
     }
     pub fn new(p: &parser::Parser) -> Result<Self, String> {
         let mut scopes = Vec::new();
@@ -233,6 +253,8 @@ impl Resolver {
             errors: Vec::new(),
             current_id: 0,
         };
+        s.add_base_types();
+
         let root = &p.root;
         for n in root {
             s.resolve_stmt(&n)?;
@@ -242,7 +264,7 @@ impl Resolver {
     fn new_obj(&mut self, node_id: parser::NodeId, id: SymbolId, s: Object) -> 
         Result<SymbolId, String>{
             // check if it exists
-        if let Some(_) = self.scope_exists(&s.name) {
+        if let Some(_) = self.get_from_name(&s.name) {
             return Err(String::from("Value already exists"));
         }
         let name = s.name.clone();
@@ -262,12 +284,38 @@ impl Resolver {
     fn add_ref(&mut self, id: parser::NodeId, to: SymbolId) {
         self.symbols.insert(id, to);
     }
-    fn scope_exists(&self, name: &String) -> Option<&Symbol> {
+    fn get_obj_from_name(&self, name: &String) -> Result<&Object,String> {
+        if let Some(sym) = self.get_from_name(name) {
+            match sym {
+                Symbol::Object(o) => return Ok(o),
+                _=> return Err(String::from(format!("symbol {} not an objext", name))),
+            }
+        }
+        Err(String::from(format!("symbol {} does not exist", name)))
+    }
+    fn get_type_from_name(&self, name: &String) -> Result<&Type,String> {
+        self.dump();
+        if let Some(sym) = self.get_from_name(name) {
+            match sym {
+                Symbol::Type(t) => return Ok(t),
+                _=> return Err(String::from(format!("symbol {} not a type", name))),
+            }
+        }
+        Err(String::from(format!("symbol {} does not exist", name)))
+    }
+    fn get_from_name(&self, name: &String) -> Option<&Symbol> {
         // check if name exists in scope
         if let Some(sym) = self.scopes[self.base_scope..].last()?.get(name) {
             return self.resolved.get(&sym);
         }
+        if let Some(sym) = self.globals.get(name) {
+            return self.resolved.get(&sym);
+        }
         None
+    }
+
+    pub fn get_resolved(& self, id: SymbolId) -> Option<&Symbol> {
+        return self.resolved.get(&id);
     }
     pub fn get(& self, id: parser::NodeId) -> Option<&Symbol> {
         if let Some(v) = self.symbols.get(&id) {

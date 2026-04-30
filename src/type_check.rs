@@ -50,13 +50,11 @@ impl<'a> TypeChecker<'a> {
             let mut val_t = self.resolved.get(&val.id()).unwrap().clone();
             // if obj has a type compare
             if let Some(var_t) = obj.ty.clone() {
-                if val_t != var_t {
-                    return Err(String::from(format!(
-                        "vardec value type doesn't match vardec type {}:{}",
-                        var_t, val_t)));
-                }
+                // var_t first arg cus i'd return that
+                let t3 = Self::handle_untyped(&var_t, &val_t)?;
+                self.propagate_type(&t3, val); // only value
                 // set to type
-                self.symbols.set_obj_type(vardec.s.id, var_t.clone())?;
+                self.resolved.insert(vardec.s.id, t3.clone()); // add to resolved. ofc
             } else { // else set obj type
                 println!("obj {} has no type", &obj.name);
                 // if it's untyped then set both val and s
@@ -68,13 +66,13 @@ impl<'a> TypeChecker<'a> {
                 }
                 println!("setting obj {} type to {}", &obj.name, val_t);
                 // set in symbol table
-                self.symbols.set_obj_type(vardec.s.id, val_t.clone())?;
+                self.symbols.set_obj_type(vardec.s.id, val_t.clone()).unwrap();
                 self.resolved.insert(vardec.s.id, val_t.clone()); // add to resolved. ofc
             }
             return Ok(());
         } else { // no value so must have type
-            if let Some(_) = obj.ty {
-                self.resolved.insert(id, obj.ty.unwrap()).unwrap();
+            if let Some(t) = obj.ty {
+                self.resolved.insert(id, t);
                 return Ok(());
             } else {
                 return Err(String::from(
@@ -120,6 +118,12 @@ impl<'a> TypeChecker<'a> {
             } else {
                 panic!("Handle untyped/typed non-numeric");
             }
+        } else if !l.is_untyped() && !r.is_untyped() {
+            if l == r {
+                return Ok(l.clone());
+            } else {
+                return Err(String::from("Types don't match"));
+            }
         }
         panic!("Handle");
     }
@@ -136,8 +140,7 @@ impl<'a> TypeChecker<'a> {
             Expr::Symbol(s) => {
                 // get symbol in symbol table and make sure it's an object
                 let symbol = 
-                    self.symbols.get(s.id) .ok_or(String::from(format!(
-                                "Symbol {} doesn't exist.", s.symbol)))?;
+                    self.symbols.get(s.id).unwrap();//.ok_or(String::from(format!("Symbol {}({:?}) doesn't exist.", s.symbol, s.id)))?;
                 if let symbols::Symbol::Object(symbol_var) = symbol {
                     if let Some(t) = &symbol_var.ty {
                         self.resolved.insert(s.id, t.clone());
@@ -152,6 +155,7 @@ impl<'a> TypeChecker<'a> {
                 }
             },
             Expr::Binop(b) => {
+                println!("binop left: {:?}", b.left);
                 self.resolve_expr(&b.left)?;
                 self.resolve_expr(&b.right)?;
                 let mut lt = self.resolved.get(&b.left.id()).unwrap().clone();
@@ -161,10 +165,10 @@ impl<'a> TypeChecker<'a> {
                 // get new types
                 lt = self.resolved.get(&b.left.id()).unwrap().clone();
                 rt = self.resolved.get(&b.right.id()).unwrap().clone();
-                if lt != rt {
-                    return Err(String::from(format!(
-                                "Binop types don't match: {:?}:{}vs{:?}:{}.", b.left.id(),lt, b.right.id(),rt)));
-                }
+                // check if untyped
+                let t3 = TypeChecker::handle_untyped(&lt, &rt)?;
+                self.propagate_type(&t3, &b.left);
+                self.propagate_type(&t3, &b.right);
                 self.resolved.insert(b.id, lt.clone());
             }
             // _ => panic!("handle"),

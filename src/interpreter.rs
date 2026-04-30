@@ -11,10 +11,6 @@ enum Value {
     Float(f32),
     Fn(Fn),
 }
-struct Symbol {
-    ty: symbols::Type,
-    value: Value,
-}
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match self {
@@ -69,7 +65,10 @@ impl Display for Value {
 impl Interpreter {
     pub fn dump(&self) {
         for (k, v) in &self.values {
-            println!("\t{:?}:\t {}", k,v);
+            if let symbols::Symbol::Object(obj) =
+                self.symbols.get_resolved(*k).unwrap() {
+                println!("\t{:?}:{}\t {}", k, obj.name,v);
+            }
         }
     }
     fn eval_expr(&mut self, expr: &parser::Expr) -> Result<Value, String> {
@@ -115,7 +114,7 @@ impl Interpreter {
             parser::Expr::VarDec(v) => {
                 let s = match self.symbols.get(v.s.id).unwrap() {
                     symbols::Symbol::Object(o) => o.clone(), // clone idc
-                    _=>panic!("Wjat"),
+                    _=>panic!("not an object"),
                 };
                 let t = self.types.get(&v.s.id)
                     .ok_or(String::from(format!("vardec {:?} has no type", v.s)))?;

@@ -166,7 +166,7 @@ impl Parser {
     fn parse_vardec(&mut self, lhs: Expr) -> Result<Expr, ParserErr> {
         let symbol: Symbol;
         match lhs {
-            Expr::Symbol(s) =>symbol = s,
+            Expr::Symbol(s) => symbol = s,
             _ => {
                 return Err(ParserErr::Invalid(String::from(
                             "vardec lhs must be a symbol.")));
@@ -185,13 +185,16 @@ impl Parser {
                         }));
                     },
                     ":" => { // "a : type..."
-                        self.next(); // consume token
+                        println!("{}|{}", self.next(), self.current()); // consume token
                         let t = self.parse_type()?;
                         // "a: type = ..." or "a: type"
+                        println!("{}", self.current()); // consume token
                         match self.current() {
                             // "a: type = ..."
                             lexer::Token::Symbol(next,_span)
                                 if next.as_str() == "=" => {
+                                println!("Vardec with type and value");
+                                self.next();
                                 let rhs = self.parse_expr()?;
                                 return Ok(Expr::VarDec(VarDec{
                                     s: symbol,
@@ -228,6 +231,7 @@ impl Parser {
                 }
             }
             lexer::Token::Ident(i,_span) => {
+                self.next();
                 return Ok(Type::Base(i));
             },
             _ => panic!("Handle"),
@@ -265,6 +269,7 @@ impl Parser {
     pub fn parse(lexer: lexer::Lexer) -> Self {
         let mut p: Parser = Parser{lexer,root:Vec::new(), current_id:0};
         let root = p.parse_tls().unwrap_or_else(|err| panic!("Error in tls {:?}", err));
+        println!("AST: {:?}", root);
         p.root=root;
         return p;
     }
