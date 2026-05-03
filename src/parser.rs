@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, thread::current};
 // type NodeId = usize; // use this for nodes ig?
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct NodeId(usize);
@@ -102,11 +102,30 @@ impl Parser {
     fn _back(&mut self) {
         self.lexer.back();
     }
-    fn parse_struct(&mut self) -> Option<Stmt> {
-        None
+    fn parse_struct(&mut self) -> Result<Stmt,ParserErr> {
+        panic!("Handle");
     }
     fn parse_fn(&mut self) -> Option<Stmt> {
-        None
+        if let Token::Keyword(k,_) = self.next() {
+            if k.as_str() != "fn" {
+                panic!("Expected kw fn");
+            }
+        }
+        let name: String;
+        if let Token::Ident(i, _) = self.current() {
+            name = i;
+        } else {
+            panic!("Expected name in fn dec");
+        }
+
+        panic!("Handle");
+    }
+    fn expect(&mut self, s: &'static str) -> Result<(), ParserErr> {
+        if let Token::Keyword(k,pos) = self.current() {
+            Ok(())
+        } else {
+            Err(ParserErr::Invalid(String::from("Exected symbol")))
+        }
     }
     fn parse_primary(&mut self) -> Result<Expr, ParserErr> {
         let t =  self.next();
@@ -251,7 +270,7 @@ impl Parser {
                     }
                 },
                 _ =>
-                    stmts.push(Stmt::Expr(self.parse_expr()?)),
+                    return Err(ParserErr::Invalid(String::from("Invalid Kw"))),
             }
             // consume semicolon
             if let lexer::Token::Symbol(s,_span) = self.current() {
