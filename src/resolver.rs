@@ -1,4 +1,4 @@
-use crate::parser::{self};
+use crate::parser::{self, ExprId, StmtId};
 use std::{collections::HashMap, fmt::Display};
 
 impl Display for Symbol {
@@ -150,13 +150,15 @@ impl Scope {
 }
 
 pub struct Resolver {
+    parser: parser::Parser,
     scopes: Vec<Scope>,
     base_scope: usize,
     globals: Scope,
     // value points to resolved
-    symbols: HashMap<parser::NodeId, SymbolId>,
-    // stores resolved symbols with NodeId being declaration node id
-    // stores resolved symbols with NodeId being declaration node id
+    symbols: HashMap<parser::ExprId, SymbolId>,
+    typed: HashMap<parser::ExprId,Type>, // again exprid cus only applies to exprs
+    // stores resolved symbols with ExprId being declaration node id
+    // stores resolved symbols with ExprId being declaration node id
     resolved: HashMap<SymbolId, Symbol>,
     errors: Vec<String>,
     current_id: SymbolId,
@@ -174,10 +176,11 @@ impl Resolver {
             println!("\t{:?} {}", k, v);
         }
     }
-    fn resolve_stmt(&mut self, stmt: &parser::Stmt) -> Result<(), String> {
+    fn resolve_stmt(&mut self, id: StmtId) -> Result<(), String> {
+        let stmt = self.parser.get_stmt(id).unwrap();
         match stmt {
             parser::Stmt::Expr(expr) => {
-                match self.resolve_expr(expr) {
+                match self.resolve_expr(expr.clone()) {
                     Ok(()) => return Ok(()),
                     Err(s) => {
                         self.errors.push(s.clone());
@@ -195,22 +198,25 @@ impl Resolver {
             
         }
     }
-    fn resolve_expr(&mut self, expr: &parser::Expr) -> Result<(), String> {
+    fn resolve_expr(&mut self, expr_id: ExprId) -> Result<(), String> {
+        let expr = self.parser.get_expr(expr_id).unwrap().clone();
         match &expr {
             parser::Expr::Symbol(s) => {
-                if let Some(id) = self.get_obj_ref(&s.symbol) {
-                    println!("symbol {:?} exists with id {:?}", s, id);
-                    self.add_ref(s.id, id); // create reference to id
-                    return Ok(());
-                }
+                let id = self.get_obj_ref(&s.symbol)
+                    .ok_or(String::from("var doesn't exist."))?;
+                println!("symbol {:?} exists with id {:?}", s, id);
+                self.add_ref(expr_id, id); // create reference to expr_id
+                                           // cuz the expr is the symbol
+                return Ok(());
             },
             parser::Expr::Binop(b) => {
-                self.resolve_expr(&b.left)?; // check exprs are ok
-                self.resolve_expr(&b.right)?;
+                self.resolve_expr(b.left)?; // check exprs are ok
+                self.resolve_expr(b.right)?;
+                return Ok(())
             }
             parser::Expr::VarDec(v) => {
-                if let Some(val) = &v.val {
-                    self.resolve_expr(&val)?; // check val is ok
+                if let Some(val) = v.val {
+                    self.resolve_expr(val)?; // check val is ok
                 }
                 let id = self.next_id();
                 let mut o = Object{
@@ -224,12 +230,15 @@ impl Resolver {
                     o.ty = Some(t.clone());
                 }
                 // add
-                self.new_obj(v.s.id, id, o)?;
+                // new object exprid cus that's the vardec
+                self.new_obj(expr_id, id, o)?;
+                return Ok(())
             },
-            parser::Expr::Number(_) => {},
+            parser::Expr::Number(_) => {
+                return Ok(());
+            },
             // _ => panic!("Handle {:?}", expr),
         }
-        Ok(())
     }
     fn add_base_types(&mut self) {
         let t1 = Symbol::Type(Type::Int);
@@ -241,11 +250,13 @@ impl Resolver {
         self.resolved.insert(t2id, t2);
         self.globals.add(String::from("float"), t2id);
     }
-    pub fn new(p: &parser::Parser) -> Result<Self, String> {
+    pub fn new(p: parser::Parser) -> Result<Self, String> {
         let mut scopes = Vec::new();
         scopes.push(Scope::new());
         let mut s = Self{
+            parser: p,
             symbols: HashMap::new(),
+            typed: HashMap::new(),
             base_scope: 0,
             globals: Scope::new(),
             resolved: HashMap::new(),
@@ -255,13 +266,12 @@ impl Resolver {
         };
         s.add_base_types();
 
-        let root = &p.root;
-        for n in root {
-            s.resolve_stmt(&n)?;
+        for n in &s.parser.root.stmts.clone() {
+            s.resolve_stmt(n.clone())?;
         }
         Ok(s)
     }
-    fn new_obj(&mut self, node_id: parser::NodeId, id: SymbolId, s: Object) -> 
+    fn new_obj(&mut self, node_id: parser::ExprId, id: SymbolId, s: Object) -> 
         Result<SymbolId, String>{
             // check if it exists
         if let Some(_) = self.get_from_name(&s.name) {
@@ -281,7 +291,7 @@ impl Resolver {
         println!("New var {}", name);
         Ok(id)
     }
-    fn add_ref(&mut self, id: parser::NodeId, to: SymbolId) {
+    fn add_ref(&mut self, id: ExprId, to: SymbolId) {
         self.symbols.insert(id, to);
     }
     fn get_obj_from_name(&self, name: &String) -> Result<&Object,String> {
@@ -317,7 +327,7 @@ impl Resolver {
     pub fn get_resolved(& self, id: SymbolId) -> Option<&Symbol> {
         return self.resolved.get(&id);
     }
-    pub fn get(& self, id: parser::NodeId) -> Option<&Symbol> {
+    pub fn get(& self, id: parser::ExprId) -> Option<&Symbol> {
         if let Some(v) = self.symbols.get(&id) {
             return Some(self.resolved.get(v)?);
         }
@@ -341,7 +351,7 @@ impl Resolver {
         }
         None
     }
-    pub fn set_obj_type(&mut self, id: parser::NodeId, t: Type)
+    pub fn set_obj_type(&mut self, id: parser::ExprId, t: Type)
         -> Result<(), String> {
         for (k,v) in &self.symbols {
             println!("k {:?} v {}", k, v);

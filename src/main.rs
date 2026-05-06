@@ -2,9 +2,9 @@ use std::fs::read_to_string;
 
 mod lexer;
 mod parser;
-mod symbols;
-mod type_check;
-mod interpreter;
+mod resolver;
+// mod type_check;
+// mod interpreter;
 
 
 fn main()  {
@@ -13,10 +13,10 @@ fn main()  {
         panic!("error {}", err);});
     println!("end");
     let p = parser::Parser::parse(lexer); // takes ownership
-    let mut resolved = symbols::Resolver::new(&p).unwrap();
-    let types = type_check::TypeChecker::resolve(&mut resolved, &p).unwrap();
+    let _  = resolver::Resolver::new(p).unwrap();
+    /*let types = type_check::TypeChecker::resolve(&mut resolved, &p).unwrap();
     // owns it all now
-    interpreter::Interpreter::run(p, resolved, types).unwrap();
+    interpreter::Interpreter::run(p, resolved, types).unwrap();*/
     println!("Run successfully");
 }
 
