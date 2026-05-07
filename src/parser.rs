@@ -1,4 +1,4 @@
-use std::{fmt::Display, thread::current};
+use std::{fmt::Display};
 // type NodeId = usize; // use this for nodes ig?
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 // pub struct NodeId(usize);
@@ -53,8 +53,22 @@ pub enum Expr {
     Number(Number),
     VarDec(VarDec),
 }
+
+#[derive(Clone, Debug)]
+pub struct FnDecArg {
+    name: String,
+    ty: Type,
+}
+#[derive(Clone, Debug)]
+pub struct FnDec {
+    name: String,
+    args: Vec<FnDecArg>,
+    ret_ty: Option<Type>,
+    body: Option<StmtId>,
+}
 #[derive(Clone, Debug)]
 pub enum Stmt {
+    FnDec(FnDec),
     Expr(ExprId),
     // if/else, fn dec, struct dec and what not
 }
@@ -62,6 +76,10 @@ impl Expr { // get id. thanks claude!
 }
 #[derive(Debug)]
 pub struct Scope {
+    pub stmts: Vec<StmtId>,
+}
+#[derive(Debug)]
+pub struct FnBody {
     pub stmts: Vec<StmtId>,
 }
 
@@ -109,12 +127,64 @@ impl Parser {
     fn parse_struct(&mut self) -> Result<StmtId,ParserErr> {
         panic!("Handle struct dec");
     }
-    fn parse_fn(&mut self) -> Result<StmtId,ParserErr> {
+    fn parse_fn_dec_args(&mut self) -> Result<Vec<FnDecArg>, ParserErr> {
         panic!("Handle");
     }
+    fn parse_fn_body(&mut self) -> Result<StmtId,ParserErr> {
+        panic!("Handle");
+    }
+    fn parse_fn_dec(&mut self) -> Result<StmtId,ParserErr> {
+        // make sure it's kw fn
+        if !matches!(self.current(), Token::Keyword(lexer::Keyword::Fn, _)) {
+            return Err(ParserErr::Expected(String::from("Expected kw fn")));
+        }
+        let token = self.next(); // consume token
+        let name = self.expect_ident()?;
+        let mut args = Vec::<FnDecArg>::new();
+        self.expect("(")?; // expect "(" args ")"
+        match self.current() {
+            Token::Symbol(s,_) if s == ")" => {self.next();},
+            _=> { args = self.parse_fn_dec_args()?; self.expect(")")?; },
+        }
+        let mut ret_ty: Option<Type> = None;
+        match self.current() {
+            Token::Symbol(s,_) if s == ":" => {
+                self.next();
+                ret_ty = Some(self.parse_type()?);
+            },
+            _=> {},
+        }
+
+        let mut body: Option<StmtId> = None;
+        match self.current() {
+            Token::Symbol(s,_) if s == "{" => {
+                self.next();
+                body = Some(self.parse_fn_body()?);
+            },
+            _=> {},
+        }
+
+        let fndec = FnDec {
+            name, args, ret_ty, body
+        };
+        Ok(self.new_stmt(Stmt::FnDec(fndec)))
+    }
+    // consumes
+    fn expect_ident(&mut self) -> Result<String,ParserErr>{
+        match self.current() {
+            Token::Ident(ident, _) =>{
+                self.next(); Ok(ident)
+            }
+            _=>Err(ParserErr::Expected(String::from(
+                        format!("expected ident, got {:?}", self.current())))),
+        }
+    }
     fn expect(&mut self, s: &'static str) -> Result<(), ParserErr> {
-        if let Token::Keyword(_,_) = self.current() {
-            Err(ParserErr::Invalid(String::from("Exected symbol")))
+        if let Token::Symbol(o,_) = self.current() {
+            if o.as_str() == s { return Ok(()); }
+            Err(ParserErr::Invalid(String::from(
+                format!("Exected symbol doesn't match current \"{}\":\"{}\"",
+                    s, o))))
         } else {
             Err(ParserErr::Invalid(String::from("Exected symbol")))
         }
@@ -266,17 +336,17 @@ impl Parser {
         let s =Stmt::Expr(self.parse_expr()?);
         Ok(self.new_stmt(s))
     }
-    fn parse_tls(&mut self) -> Result<Vec<StmtId>, ParserErr> {
+    fn parse_module_tls(&mut self) -> Result<Vec<StmtId>, ParserErr> {
         let mut stmts: Vec<StmtId> = vec![];
         loop {
             let t = self.current();
             match t {
                 lexer::Token::EOF => break,
                 lexer::Token::Keyword(kw,_span) => {
-                    match kw.as_str() {
-                        "fn" => stmts.push(self.parse_fn().unwrap()),
-                        // "struct" => stmts.push(self.parse_struct().unwrap()),
-                        _ => panic!("unhandled/unknown kw {}", kw),
+                    match kw {
+                        lexer::Keyword::Fn => 
+                            stmts.push(self.parse_fn_dec().unwrap()),
+                        // _ => panic!("unhandled/unknown kw {:?}", kw),
                     }
                 },
                 _ =>
@@ -297,7 +367,7 @@ impl Parser {
             exprs: Vec::new(),
             stmts: Vec::new(),
             lexer,root:Scope{stmts:Vec::new()}};
-        let root = p.parse_tls().unwrap_or_else(|err| panic!("Error in tls {:?}", err));
+        let root = p.parse_module_tls().unwrap_or_else(|err| panic!("Error in tls {:?}", err));
         println!("AST: {:?}", root);
         p.root=Scope { stmts: root };
         return p;

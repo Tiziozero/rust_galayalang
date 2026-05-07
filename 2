@@ -132,12 +132,11 @@ impl Symbol {
 
 
 pub struct Scope {
-    parent: Option<usize>,
     symbols: HashMap<String, SymbolId>, // points to resolved
 }
 impl Scope {
-    fn new(parent: Option<usize>) ->Self {
-        Self{ parent,  symbols: HashMap::new() }
+    fn new() ->Self {
+        Self{ symbols: HashMap::new() }
     }
     fn add(&mut self, name: String, id: SymbolId) {
         self.symbols.insert(name, id);
@@ -253,13 +252,13 @@ impl Resolver {
     }
     pub fn new(p: parser::Parser) -> Result<Self, String> {
         let mut scopes = Vec::new();
-        scopes.push(Scope::new(None));
+        scopes.push(Scope::new());
         let mut s = Self{
             parser: p,
             symbols: HashMap::new(),
             typed: HashMap::new(),
             base_scope: 0,
-            globals: Scope::new(None),
+            globals: Scope::new(),
             resolved: HashMap::new(),
             scopes: scopes,
             errors: Vec::new(),
@@ -325,7 +324,7 @@ impl Resolver {
         None
     }
 
-    pub fn get_resolved(&self, id: SymbolId) -> Option<&Symbol> {
+    pub fn get_resolved(& self, id: SymbolId) -> Option<&Symbol> {
         return self.resolved.get(&id);
     }
     pub fn get(& self, id: parser::ExprId) -> Option<&Symbol> {
@@ -339,11 +338,10 @@ impl Resolver {
     fn get_obj_ref(&self, name: &String) -> Option<SymbolId> {
         // try all scopes from last to first
         for s in self.scopes[self.base_scope..].iter().rev() {
-            if let Some(id) = s.get(name) {
-                // if it exists and is an object
-                if let Some(Symbol::Object(_)) = self.resolved.get(&id) {
-                    return Some(id);
-                }
+            let id = s.get(name)?;
+            // if it exists and is an object
+            if let Some(Symbol::Object(_)) = self.resolved.get(&id) {
+                return Some(id);
             }
         }
         // try globals next ig?
@@ -381,9 +379,5 @@ impl Resolver {
             Err(String::from("symbol not a object."))
         }
             
-    }
-}
-impl Resolver {
-    fn tc(&mut self) {
     }
 }

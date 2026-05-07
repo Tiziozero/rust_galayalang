@@ -1,5 +1,5 @@
 use std::{fmt};
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug, PartialEq)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
@@ -7,11 +7,15 @@ pub struct Span {
 fn span(s:usize,e:usize)->Span {
     Span{start:s, end:e}
 }
-#[derive(Clone)]
+#[derive(Debug,Clone, PartialEq)]
+pub enum Keyword {
+    Fn,
+}
+#[derive(Clone, PartialEq)]
 pub enum Token {
     Ident(String,Span),
     Num(String,Span),
-    Keyword(String,Span),
+    Keyword(Keyword,Span),
     Symbol(String,Span), // can be double like "+="
     EOF,
 }
@@ -78,8 +82,9 @@ impl Lexer {
                         i += chars.next().unwrap().len_utf8(); // advance
                     }
                     match name.as_str() {
-                        "fn"| "if" | "else" =>
-                            tokens.push(Token::Keyword(name,span(start, i))),
+                        "fn" =>
+                            tokens.push(
+                                Token::Keyword(Keyword::Fn,span(start, i))),
                         _ => 
                             tokens.push(Token::Ident(name,span(start,i))),
                     }
