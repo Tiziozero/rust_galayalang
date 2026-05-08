@@ -12,8 +12,8 @@ fn main()  {
     let lexer = lexer::Lexer::from_code(&code).unwrap_or_else(|err| {
         panic!("error {}", err);});
     println!("end");
-    let p = parser::Parser::parse(lexer); // takes ownership
-    let _  = resolver::Resolver::new(p).unwrap();
+    let _p = parser::Parser::parse(lexer); // takes ownership
+    // let _  = resolver::Resolver::new(p).unwrap();
     /*let types = type_check::TypeChecker::resolve(&mut resolved, &p).unwrap();
     // owns it all now
     interpreter::Interpreter::run(p, resolved, types).unwrap();*/

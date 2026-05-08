@@ -109,6 +109,22 @@ impl Lexer {
                             ('=', Some('=')) => {
                                 i+=chars.next().unwrap().len_utf8(); // advance
                                 Token::Symbol("==".into(),span(start,i))
+                        },
+                            ('+', Some('=')) => {
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol("+=".into(),span(start,i))
+                        },
+                            ('-', Some('=')) => {
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol("-=".into(),span(start,i))
+                        },
+                            ('*', Some('=')) => {
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol("*=".into(),span(start,i))
+                        },
+                            ('/', Some('=')) => {
+                                i+=chars.next().unwrap().len_utf8(); // advance
+                                Token::Symbol("/=".into(),span(start,i))
                         }
                             ('!', Some('=')) => {
                                 i+=chars.next().unwrap().len_utf8(); // advance

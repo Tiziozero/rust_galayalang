@@ -189,7 +189,7 @@ impl Resolver {
                     }
                 };
             },
-            // _ => panic!("Handle {}", n),
+            _ => panic!("Handle {:?}", id),
         }
     }
     fn resolve_type(&mut self, t: &parser::Type) -> Result<&Type, String> {
