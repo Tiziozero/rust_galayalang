@@ -9,7 +9,7 @@ fn span(s:usize,e:usize)->Span {
 }
 #[derive(Debug,Clone, PartialEq)]
 pub enum Keyword {
-    Fn,
+    Fn, If, Else,
 }
 #[derive(Clone, PartialEq)]
 pub enum Token {
@@ -75,7 +75,7 @@ impl Lexer {
                     let mut name = String::new();
                     while let Some(c) = chars.peek() {
                         match c {
-                            'a'..='z' | 'A'..='Z' | '_' =>
+                            'a'..='z' | 'A'..='Z' | '_' | '0'..='9' =>
                                 name.push(*c),
                             _ => break
                         }
@@ -85,6 +85,12 @@ impl Lexer {
                         "fn" =>
                             tokens.push(
                                 Token::Keyword(Keyword::Fn,span(start, i))),
+                        "if" =>
+                            tokens.push(
+                                Token::Keyword(Keyword::If,span(start, i))),
+                        "else" =>
+                            tokens.push(
+                                Token::Keyword(Keyword::Else,span(start, i))),
                         _ => 
                             tokens.push(Token::Ident(name,span(start,i))),
                     }

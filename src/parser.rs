@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display};
 pub struct StmtId(usize);
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExprId(usize);
-use crate::lexer::{self, Token};
+use crate::lexer::{self, Keyword, Token};
 
 #[derive(Debug)]
 pub enum ParserErr {
@@ -60,10 +60,16 @@ pub struct FnDec {
     name: String,
     args: Vec<FnDecArg>,
     ret_ty: Option<Type>,
-    body: Option<FnBody>,
+    body: Option<Block>,
+}
+#[derive(Clone, Debug)]
+pub struct IfStmt {
+    cond: ExprId,
+    block: Block,
 }
 #[derive(Clone, Debug)]
 pub enum Stmt {
+    IfStmt(IfStmt),
     FnDec(FnDec),
     Expr(ExprId),
     // if/else, fn dec, struct dec and what not
@@ -75,21 +81,23 @@ pub struct Scope {
     pub stmts: Vec<StmtId>,
 }
 #[derive(Clone)]
-pub struct FnBody {
+pub struct Block {
     pub stmts: Vec<StmtId>,
 }
-impl Debug for FnBody {
+impl Debug for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Fn Body")
     }
 }
 
+const DONT_PARSE_STRUCT_LITS: usize = 0b1;
 
 #[derive(Debug)]
 pub struct Parser {
     stmts: Vec<Stmt>,
     exprs: Vec<Expr>,
     lexer: lexer::Lexer,
+    flags: usize,
     pub root: Scope,
 }
 impl Parser {
@@ -128,23 +136,73 @@ impl Parser {
     fn parse_fn_dec_args(&mut self) -> Result<Vec<FnDecArg>, ParserErr> {
         Ok(vec![])
     }
-    fn parse_fn_body(&mut self) -> Result<FnBody,ParserErr> {
+    fn parse_block(&mut self) -> Result<Block,ParserErr> {
+        let old = self.flags;
+        self.flags &= !DONT_PARSE_STRUCT_LITS;
         self.expect("{")?;
         let mut stmts = Vec::<StmtId>::new();
         'fn_body: loop {
             match self.current() {
                 lexer::Token::Symbol(s,_) if s == "}" => {
-                    self.next();
                     break 'fn_body;
                 }
-                _ => {stmts.push(self.parse_stmt()?);},
+                _ => stmts.push(self.parse_stmt()?),
             }
         }
-        let fn_body = FnBody {stmts: stmts};
+        self.expect("}")?;
+        let fn_body = Block {stmts: stmts};
+        self.flags = old;
         return Ok(fn_body);
+    }
+    fn expect_kw(&mut self, kw: Keyword) -> Result<Keyword,ParserErr>{
+        match self.current() {
+            Token::Keyword(k, _) =>{
+                if k == kw {
+                    self.next();
+                    Ok(k)
+                } else {
+                    Err(ParserErr::Expected(String::from(
+                                format!("keyword {:?}", kw)),self.current()))
+                }
+            }
+            _=>Err(ParserErr::Expected(String::from(
+                        format!("keyword {:?}", kw)),self.current())),
+        }
+    }
+    fn is_kw(&mut self, kw: Keyword) -> bool {
+        match self.current() {
+            Token::Keyword(k, _) =>{
+                if k == kw {
+                    self.next();
+                    true
+                } else {
+                    false
+                }
+            }
+            _=> false
+        }
+    }
+    fn parse_if_condition(&mut self) -> Result<ExprId, ParserErr> {
+        let old = self.flags;
+        self.flags &= DONT_PARSE_STRUCT_LITS;
+        let r = self.parse_assignment_expr(); // anny assignment expr
+        self.flags = old;
+        r
+    }
+    fn parse_if_stmt(&mut self) -> Result<StmtId, ParserErr> {
+        self.expect_kw(Keyword::If)?;
+        let cond = self.parse_if_condition()?;
+        let body = self.parse_block()?;
+        let s = IfStmt {
+            cond, block: body
+        };
+        Ok(self.new_stmt(Stmt::IfStmt(s)))
     }
     fn parse_stmt(&mut self) -> Result<StmtId, ParserErr> {
         match self.current() {
+            lexer::Token::Keyword(lexer::Keyword::If, _) => {
+                self.parse_if_stmt()
+            },
             _ => self.parse_expr_stmt()
         }
     }
@@ -161,19 +219,18 @@ impl Parser {
             vec![]
         } else { self.parse_fn_dec_args()? };
         self.expect(")")?;
-        let mut ret_ty: Option<Type> = None;
-        match self.current() {
+        let ret_ty: Option<Type> = match self.current() {
             Token::Symbol(s,_) if s == ":" => {
                 self.next();
-                ret_ty = Some(self.parse_type()?);
+                Some(self.parse_type()?)
             },
-            _=> {},
-        }
+            _=> None
+        };
 
         // optional Body
         let body = match self.current() {
             Token::Symbol(s,_) if s == "{" => {
-                Some(self.parse_fn_body()?)
+                Some(self.parse_block()?)
             },
             _=> None,
         };
@@ -205,29 +262,32 @@ impl Parser {
             if o.as_str() == s { self.next(); return Ok(()); } // consume
             Err(ParserErr::Expected(String::from(s), self.current()))
         } else {
-            Err(ParserErr::Invalid(String::from("Exected symbol")))
+            Err(ParserErr::Invalid(String::from(
+                        format!("Expected symbol {}", s))))
         }
     }
     fn parse_primary(&mut self) -> Result<ExprId, ParserErr> {
-        let t =  self.next();
+        let t =  self.current();
         match t {
             lexer::Token::Ident(s,_span) => {
+                self.next();
                 let e = Expr::Symbol(Symbol { symbol: s });
                 Ok(self.new_expr(e))
             },
             lexer::Token::Num(n,_span) => {
+                self.next();
                 let e = Expr::Number(Number { str: n});
                 Ok(self.new_expr(e))
             }
             lexer::Token::Symbol(s,_span) if s.eq("(") => {
                 self.next();
-                let expr = self.parse_expr()?;
+                let expr = self.parse_assignment_expr()?;
                 if let lexer::Token::Symbol(s,_) = self.current()
                     && s.as_str() == ")" {
-                    self.next();
-                    return Ok(expr);
-                } else {
-                    panic!("Expected {} got {}", ")",
+                        self.next();
+                        return Ok(expr);
+                    } else {
+                        panic!("Expected {} got {}", ")",
                         self.current());
                 }
             }
@@ -245,36 +305,36 @@ impl Parser {
                         self.next();
                         let rhs = self.parse_expr()?;
                         let e = Expr::Binop(Binop {
-                                left: lhs,
-                                right: rhs, 
-                                kind: match s.as_str() {
-                                    "+" => BinopKind::Add,
-                                    "-" => BinopKind::Sub,
-                                    "*" => BinopKind::Mlt,
-                                    "/" => BinopKind::Div,
-                                    "=" => BinopKind::Assign,
-                                    _ => return Err(ParserErr::Invalid(
-                                            String::from(
-                                                "Invalid symbol in binop?")))
-                                }});
+                            left: lhs,
+                            right: rhs, 
+                            kind: match s.as_str() {
+                                "+" => BinopKind::Add,
+                                "-" => BinopKind::Sub,
+                                "*" => BinopKind::Mlt,
+                                "/" => BinopKind::Div,
+                                "=" => BinopKind::Assign,
+                                _ => return Err(ParserErr::Invalid(
+                                        String::from(
+                                            "Invalid symbol in binop?")))
+                            }});
                         Ok(self.new_expr(e))
                     },
                     "=" | "+=" | "-=" | "*=" | "/=" => {
                         self.next();
                         let rhs = self.parse_expr()?;
                         let e = Expr::Binop(Binop {
-                                left: lhs,
-                                right: rhs, 
-                                kind: match s.as_str() {
-                                    "+=" => BinopKind::AddAssign,
-                                    "-=" => BinopKind::SubAssign,
-                                    "*=" => BinopKind::MltAssign,
-                                    "/=" => BinopKind::DivAssign,
-                                    "=" => BinopKind::Assign,
-                                    _ => return Err(ParserErr::Invalid(
-                                            String::from(
-                                                "Invalid symbol in binop?")))
-                                }});
+                            left: lhs,
+                            right: rhs, 
+                            kind: match s.as_str() {
+                                "+=" => BinopKind::AddAssign,
+                                "-=" => BinopKind::SubAssign,
+                                "*=" => BinopKind::MltAssign,
+                                "/=" => BinopKind::DivAssign,
+                                "=" => BinopKind::Assign,
+                                _ => return Err(ParserErr::Invalid(
+                                        String::from(
+                                            "Invalid symbol in binop?")))
+                            }});
                         Ok(self.new_expr(e))
                     }
                     _=> return Ok(lhs),
@@ -289,6 +349,9 @@ impl Parser {
         } else {
             false
         }
+    }
+    fn parse_expr(&mut self) -> Result<ExprId, ParserErr> {
+        self.parse_binop()
     }
     fn parse_assignment_expr(&mut self) -> Result<ExprId, ParserErr> {
         if self.is_ident() {
@@ -305,7 +368,7 @@ impl Parser {
                 _ => {},
             }
         }
-        self.parse_binop()
+        self.parse_expr()
     }
     pub fn get_expr(&self, id: ExprId) -> Result<&Expr, ParserErr> {
         self.exprs.get(id.0).ok_or(
@@ -339,30 +402,27 @@ impl Parser {
                         Ok(self.new_expr(e))
                     },
                     ":" => { // "a : type..."
-                        println!("{}|{}", self.next(), self.current()); // consume token
                         let t = self.parse_type()?;
                         // "a: type = ..." or "a: type"
-                        println!("{}", self.current()); // consume token
                         match self.current() {
                             // "a: type = ..."
                             lexer::Token::Symbol(next,_span)
                                 if next.as_str() == "=" => {
-                                println!("Vardec with type and value");
-                                self.next();
-                                let rhs = self.parse_expr()?;
-                                let e = Expr::VarDec(VarDec{
-                                    s: symbol,
-                                    ty: Some(t),
-                                    val: Some(rhs),
-                                });
-                                Ok(self.new_expr(e))
-                            }
+                                    self.next();
+                                    let rhs = self.parse_expr()?;
+                                    let e = Expr::VarDec(VarDec{
+                                        s: symbol,
+                                        ty: Some(t),
+                                        val: Some(rhs),
+                                    });
+                                    Ok(self.new_expr(e))
+                                }
                             // "a: type"
                             _ => Ok(self.new_expr(Expr::VarDec(VarDec{
-                                    s: symbol,
-                                    ty: Some(t),
-                                    val: None,
-                                }))),
+                                s: symbol,
+                                ty: Some(t),
+                                val: None,
+                            }))),
                         }
                     },
                     _ => panic!("Handle"),
@@ -370,9 +430,6 @@ impl Parser {
             },
             _=>panic!("expected vardec symbol"),
         }
-    }
-    fn parse_expr(&mut self) -> Result<ExprId, ParserErr> {
-        self.parse_binop()
     }
     fn parse_type(&mut self) -> Result<Type, ParserErr> {
         match self.current() {
@@ -407,11 +464,13 @@ impl Parser {
                     match kw {
                         lexer::Keyword::Fn => 
                             stmts.push(self.parse_fn_dec().unwrap()),
-                        // _ => panic!("unhandled/unknown kw {:?}", kw),
+                            // _ => panic!("unhandled/unknown kw {:?}", kw),
+                        _ => return Err(ParserErr::Invalid(
+                                String::from(format!("invalid kw")))),
                     }
                 },
                 _ =>
-                    stmts.push(self.parse_expr_stmt()?),
+                    return Err(ParserErr::Invalid(format!("Invalid token {:?}", t))),
                     // return Err(ParserErr::Invalid(String::from("Invalid Kw"))),
             }
         }
@@ -419,6 +478,7 @@ impl Parser {
     }
     pub fn parse(lexer: lexer::Lexer) -> Self {
         let mut p: Parser = Parser{
+            flags: 0,
             exprs: Vec::new(),
             stmts: Vec::new(),
             lexer,root:Scope{stmts:Vec::new()}};

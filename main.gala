@@ -1,5 +1,4 @@
-fn main() {
-    a := 1 + 2;
-    b += c;
-    a += b + c += d;
+fn main() : u32 {
+    if a := b {
+    }
 }
