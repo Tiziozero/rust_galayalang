@@ -32,6 +32,11 @@ pub enum Type {
 pub struct Symbol {
     pub symbol: String,
 }
+#[derive(Clone, Debug)]
+pub struct IfElseAltCond {
+    cond: ExprId,
+    block: Block,
+}
 #[derive(Clone,Debug)]
 pub struct VarDec {
     pub s: Symbol,
@@ -66,6 +71,8 @@ pub struct FnDec {
 pub struct IfStmt {
     cond: ExprId,
     block: Block,
+    alt: Vec<IfElseAltCond>,
+    else_block: Option<Block>,
 }
 #[derive(Clone, Debug)]
 pub enum Stmt {
@@ -137,8 +144,6 @@ impl Parser {
         Ok(vec![])
     }
     fn parse_block(&mut self) -> Result<Block,ParserErr> {
-        let old = self.flags;
-        self.flags &= !DONT_PARSE_STRUCT_LITS;
         self.expect("{")?;
         let mut stmts = Vec::<StmtId>::new();
         'fn_body: loop {
@@ -151,7 +156,6 @@ impl Parser {
         }
         self.expect("}")?;
         let fn_body = Block {stmts: stmts};
-        self.flags = old;
         return Ok(fn_body);
     }
     fn expect_kw(&mut self, kw: Keyword) -> Result<Keyword,ParserErr>{
@@ -193,9 +197,29 @@ impl Parser {
         self.expect_kw(Keyword::If)?;
         let cond = self.parse_if_condition()?;
         let body = self.parse_block()?;
+        let mut alts = Vec::<IfElseAltCond>::new();
+        'if_else_loop: loop {
+            if self.current().is_kw(Keyword::Else)
+                && self.peek().is_kw(Keyword::If) {
+                self.next(); // "if"
+                self.next(); // "else"
+                let alt_cond = self.parse_if_condition()?;
+                let alt_block = self.parse_block()?;
+                let a = IfElseAltCond {cond: alt_cond, block: alt_block };
+                alts.push(a);
+            } else {
+                break 'if_else_loop;
+            }
+        }
+        let else_block = if self.current().is_kw(Keyword::Else) {
+            self.next();
+            Some(self.parse_block()?)
+        } else { None };
         let s = IfStmt {
-            cond, block: body
+            cond, block: body,
+            alt: alts, else_block,
         };
+
         Ok(self.new_stmt(Stmt::IfStmt(s)))
     }
     fn parse_stmt(&mut self) -> Result<StmtId, ParserErr> {
@@ -262,8 +286,7 @@ impl Parser {
             if o.as_str() == s { self.next(); return Ok(()); } // consume
             Err(ParserErr::Expected(String::from(s), self.current()))
         } else {
-            Err(ParserErr::Invalid(String::from(
-                        format!("Expected symbol {}", s))))
+            Err(ParserErr::Expected(String::from(s), self.current()))
         }
     }
     fn parse_primary(&mut self) -> Result<ExprId, ParserErr> {

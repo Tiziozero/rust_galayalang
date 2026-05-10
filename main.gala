@@ -1,4 +1,6 @@
 fn main() : u32 {
     if a := b {
+    } else if k {
+    } else  {
     }
 }

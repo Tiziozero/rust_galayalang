@@ -1,23 +1,42 @@
 use std::{fmt};
-#[derive(Clone,Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
+    pub line: usize,
+    pub col: usize,
 }
-fn span(s:usize,e:usize)->Span {
-    Span{start:s, end:e}
+impl fmt::Debug for Span {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "l{}c{}",self.line, self.col)
+    }
+}
+fn span(s:usize,e:usize,l:usize,c:usize)->Span {
+    Span{start:s, end:e, line:l, col:c}
 }
 #[derive(Debug,Clone, PartialEq)]
 pub enum Keyword {
     Fn, If, Else,
 }
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub enum Token {
     Ident(String,Span),
     Num(String,Span),
     Keyword(Keyword,Span),
     Symbol(String,Span), // can be double like "+="
     EOF,
+}
+impl PartialEq for Token {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            _ => panic!("handle token cmp {:?} {:?}", self, other)
+        }
+    }
+    fn ne(&self, other: &Self) -> bool {
+        match self {
+            _ => panic!("handle token cmp {:?} {:?}", self, other)
+        }
+    }
 }
 #[derive(Debug)]
 pub struct Lexer {
@@ -68,6 +87,8 @@ impl Lexer {
         let mut tokens: Vec<Token> = vec![];
         let mut chars = code.chars().peekable();
         let mut i = 0;
+        let mut line = 1;
+        let mut column = 1;
         while let Some(c) = chars.peek() {
             let start = i;
             match c {
@@ -79,20 +100,22 @@ impl Lexer {
                                 name.push(*c),
                             _ => break
                         }
-                        i += chars.next().unwrap().len_utf8(); // advance
+                        let s = chars.next().unwrap().len_utf8(); // advance
+                        i+=s;
+                        column += 1;
                     }
                     match name.as_str() {
                         "fn" =>
                             tokens.push(
-                                Token::Keyword(Keyword::Fn,span(start, i))),
+                                Token::Keyword(Keyword::Fn,span(start, i, line, column))),
                         "if" =>
                             tokens.push(
-                                Token::Keyword(Keyword::If,span(start, i))),
+                                Token::Keyword(Keyword::If,span(start, i, line, column))),
                         "else" =>
                             tokens.push(
-                                Token::Keyword(Keyword::Else,span(start, i))),
+                                Token::Keyword(Keyword::Else,span(start, i, line, column))),
                         _ => 
-                            tokens.push(Token::Ident(name,span(start,i))),
+                            tokens.push(Token::Ident(name,span(start, i, line, column))),
                     }
                 },
                 '0'..='9' => {
@@ -103,9 +126,11 @@ impl Lexer {
                                 num.push(*c),
                             _ => break
                         }
-                        i+=chars.next().unwrap().len_utf8(); // advance
+                        let s = chars.next().unwrap().len_utf8(); // advance
+                        i+=s;
+                        column += 1;
                     }
-                    tokens.push(Token::Num(num,span(start,i)));
+                    tokens.push(Token::Num(num,span(start, i, line, column)));
                 },
                 '(' | ')' | '{' | '}' | '[' | ']' | ':'
                     | '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | ';' => {
@@ -113,43 +138,52 @@ impl Lexer {
 
                         let token = match (first, chars.peek()) {
                             ('=', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol("==".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol("==".into(),span(start, i, line, column))
                         },
                             ('+', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol("+=".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol("+=".into(),span(start, i, line, column))
                         },
                             ('-', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol("-=".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol("-=".into(),span(start, i, line, column))
                         },
                             ('*', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol("*=".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol("*=".into(),span(start, i, line, column))
                         },
                             ('/', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol("/=".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol("/=".into(),span(start, i, line, column))
                         }
                             ('!', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol("!=".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol("!=".into(),span(start, i, line, column))
                         }
                             ('<', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol("<=".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol("<=".into(),span(start, i, line, column))
 
                         }
                             ('>', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol(">=".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol(">=".into(),span(start, i, line, column))
                         }
                             (':', Some('=')) => {
-                                i+=chars.next().unwrap().len_utf8(); // advance
-                                Token::Symbol(":=".into(),span(start,i))
+                                let s = chars.next().unwrap().len_utf8();
+                                i+=s; column += 1;
+                                Token::Symbol(":=".into(),span(start, i, line, column))
                         }
-                            _ => Token::Symbol(first.to_string(),span(start,i)),
+                            _ => Token::Symbol(first.to_string(),span(start, i, line, column)),
 
                         };
 
@@ -157,7 +191,14 @@ impl Lexer {
                     }
                 c =>  {
                     if c.is_whitespace() {
-                        chars.next();
+                        if let Some(c) = chars.next() {
+                            if c == '\n' {
+                                line += 1;
+                                column = 1;
+                            }
+                            let s = c.len_utf8();
+                            i += s;
+                        }
                     } else {
                         println!("Invalid char {}", *c as u32);
                         return Err(LexerErr::
@@ -175,10 +216,10 @@ impl Lexer {
 impl fmt::Debug for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Token::Ident(i,_) => { return write!(f, "ident {:?}", i);}
-            Token::Num(n,_) => { return write!(f, "number {:?}", n);}
-            Token::Keyword(k,_) => { return write!(f, "kw {:?}", k);}
-            Token::Symbol(s,_) => { return write!(f, "symbol {:?}", s);}
+            Token::Ident(i,span) => { return write!(f, "ident {:?} at {:?}", i,span);}
+            Token::Num(n,span) => { return write!(f, "number {:?} at {:?}", n,span);}
+            Token::Keyword(k,span) => { return write!(f, "kw {:?} at {:?}", k,span);}
+            Token::Symbol(s,span) => { return write!(f, "symbol {:?} at {:?}", s,span);}
             Token::EOF => { return write!(f, "eof");}
         }
     }
@@ -192,6 +233,22 @@ impl fmt::Display for Token {
             Token::Keyword(k,span) => { return write!(f, "kw {:?} at {:?}", k,span);}
             Token::Symbol(s,span) => { return write!(f, "symbol {:?} at {:?}", s,span);}
             Token::EOF => { return write!(f, "eof");}
+        }
+    }
+}
+impl Token {
+    pub fn is_kw(&self, kw: Keyword) -> bool {
+        if let Token::Keyword(k, _) = self && *k  == kw {
+            true
+        } else {
+            false
+        }
+    }
+    pub fn is_symbol(&self, symbol: &'static str) -> bool {
+        if let Token::Symbol(s, _) = self && s  == symbol {
+            true
+        } else {
+            false
         }
     }
 }
