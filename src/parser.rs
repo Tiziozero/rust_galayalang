@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::{fmt::{Debug, Display}, thread::current, time::TryFromFloatSecsError};
 // type NodeId = usize; // use this for nodes ig?
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 // pub struct NodeId(usize);
@@ -14,8 +14,19 @@ pub enum ParserErr {
 }
 #[derive(Clone,Debug)]
 pub enum BinopKind {
-    Add, Sub, Mlt, Div, Assign,
+    Add, Sub, Mlt, Div,
+    Eq, Ne, Le, Ge, Gt, Lt,
+}
+#[derive(Clone,Debug)]
+pub enum AssignmentKind {
+    Assign,
     AddAssign, SubAssign, MltAssign, DivAssign,
+}
+#[derive(Clone,Debug)]
+pub struct Assignment {
+    pub left: ExprId,
+    pub right: ExprId,
+    pub kind: AssignmentKind,
 }
 #[derive(Clone,Debug)]
 pub struct Binop {
@@ -38,21 +49,27 @@ pub struct IfElseAltCond {
     block: Block,
 }
 #[derive(Clone,Debug)]
+
 pub struct VarDec {
-    pub s: Symbol,
-    pub ty: Option<Type>,
-    pub val: Option<ExprId>,
+    pub s: String, // name
+    pub ty: Option<Type>, // type if defied else infer
+    pub val: Option<ExprId>, // optional initalisation value
 }
 #[derive(Clone,Debug)]
 pub struct Number {
     pub str: String,
 }
 #[derive(Clone,Debug)]
+pub struct FnCall {
+    target: ExprId,
+    args: Vec<ExprId>,
+}
+#[derive(Clone,Debug)]
 pub enum Expr {
     Binop(Binop),
     Symbol(Symbol),
     Number(Number),
-    VarDec(VarDec),
+    FnCall(FnCall),
 }
 
 #[derive(Clone, Debug)]
@@ -78,7 +95,9 @@ pub struct IfStmt {
 pub enum Stmt {
     IfStmt(IfStmt),
     FnDec(FnDec),
+    VarDec(VarDec),
     Expr(ExprId),
+    Assignment(Assignment),
     // if/else, fn dec, struct dec and what not
 }
 impl Expr { // get id. thanks claude!
@@ -137,11 +156,19 @@ impl Parser {
             lexer::Token::EOF
         }
     }
-    fn _back(&mut self) {
-        self.lexer.back();
-    }
     fn parse_fn_dec_args(&mut self) -> Result<Vec<FnDecArg>, ParserErr> {
-        Ok(vec![])
+        let mut args = Vec::<FnDecArg>::new();
+        loop {
+            let ident = self.expect_ident()?;
+            self.expect(":")?;
+            let ty = self.parse_type()?;
+            args.push(FnDecArg { name: ident, ty });
+            if !self.current().is_symbol(",") {
+                break;
+            }
+            self.next(); // ","
+        }
+        Ok(args)
     }
     fn parse_block(&mut self) -> Result<Block,ParserErr> {
         self.expect("{")?;
@@ -187,11 +214,8 @@ impl Parser {
         }
     }
     fn parse_if_condition(&mut self) -> Result<ExprId, ParserErr> {
-        let old = self.flags;
-        self.flags &= DONT_PARSE_STRUCT_LITS;
-        let r = self.parse_assignment_expr(); // anny assignment expr
-        self.flags = old;
-        r
+        self.parse_expr() // anny assignment expr
+        
     }
     fn parse_if_stmt(&mut self) -> Result<StmtId, ParserErr> {
         self.expect_kw(Keyword::If)?;
@@ -304,7 +328,7 @@ impl Parser {
             }
             lexer::Token::Symbol(s,_span) if s.eq("(") => {
                 self.next();
-                let expr = self.parse_assignment_expr()?;
+                let expr = self.parse_expr()?;
                 if let lexer::Token::Symbol(s,_) = self.current()
                     && s.as_str() == ")" {
                         self.next();
@@ -319,12 +343,44 @@ impl Parser {
 
         }
     }
+    fn parse_postfix(&mut self) -> Result<ExprId, ParserErr> {
+        let mut primary = self.parse_primary()?;
+        loop { match self.current() {
+            Token::Symbol(s,_) if s == "(" => {
+                self.next();
+                let target = primary;
+                // if there are args
+                let args = if !self.current().is_symbol(")") {
+                    println!("Expect args in fncall");
+                    let mut args = Vec::<ExprId>::new();
+                    loop {
+                        args.push(self.parse_expr()?);
+                        if !self.current().is_symbol(",") {
+                            break;
+                        }
+                        self.next(); // ","
+                    }
+                    args
+                } else {
+                    Vec::<ExprId>::new()
+                };
+                self.expect(")")?;
+                let e = Expr::FnCall(FnCall{target, args});
+                primary = self.new_expr(e);
+            },
+            _ => break
+        }
+        }
+        Ok(primary)
+    }
     fn parse_binop(&mut self) -> Result<ExprId, ParserErr> {
-        let lhs = self.parse_primary()?;
+        let lhs = self.parse_postfix()?;
         match self.current() {
             lexer::Token::Symbol(s,_span) => {
                 match s.as_str() {
-                    "+" | "-" | "*" | "/" => {
+                    "+" | "-" | "*" | "/" | "<" | ">" |
+                    "==" | "!=" | "<=" | ">="
+                        => {
                         self.next();
                         let rhs = self.parse_expr()?;
                         let e = Expr::Binop(Binop {
@@ -335,35 +391,26 @@ impl Parser {
                                 "-" => BinopKind::Sub,
                                 "*" => BinopKind::Mlt,
                                 "/" => BinopKind::Div,
-                                "=" => BinopKind::Assign,
+                                "<" => BinopKind::Lt,
+                                ">" => BinopKind::Gt,
+                                "==" => BinopKind::Eq,
+                                "!=" => BinopKind::Ne,
+                                "<=" => BinopKind::Le,
+                                ">=" => BinopKind::Ge,
                                 _ => return Err(ParserErr::Invalid(
                                         String::from(
                                             "Invalid symbol in binop?")))
                             }});
                         Ok(self.new_expr(e))
                     },
-                    "=" | "+=" | "-=" | "*=" | "/=" => {
-                        self.next();
-                        let rhs = self.parse_expr()?;
-                        let e = Expr::Binop(Binop {
-                            left: lhs,
-                            right: rhs, 
-                            kind: match s.as_str() {
-                                "+=" => BinopKind::AddAssign,
-                                "-=" => BinopKind::SubAssign,
-                                "*=" => BinopKind::MltAssign,
-                                "/=" => BinopKind::DivAssign,
-                                "=" => BinopKind::Assign,
-                                _ => return Err(ParserErr::Invalid(
-                                        String::from(
-                                            "Invalid symbol in binop?")))
-                            }});
-                        Ok(self.new_expr(e))
-                    }
-                    _=> return Ok(lhs),
+                    _ => {
+                        return Ok(lhs);
+                    },
                 }
             }
-            _ => return Ok(lhs),
+            _ => {
+                return Ok(lhs);
+            },
         }
     }
     fn is_ident(&mut self) -> bool {
@@ -376,23 +423,6 @@ impl Parser {
     fn parse_expr(&mut self) -> Result<ExprId, ParserErr> {
         self.parse_binop()
     }
-    fn parse_assignment_expr(&mut self) -> Result<ExprId, ParserErr> {
-        if self.is_ident() {
-            match self.peek() {
-                lexer::Token::Symbol(s,_span) => {
-                    match s.as_str() {
-                        ":=" | ":" | "::" => { // vardec
-                            let lhs = self.parse_primary()?;
-                            return self.parse_vardec(lhs);
-                        }
-                        _=>  {}
-                    }
-                }
-                _ => {},
-            }
-        }
-        self.parse_expr()
-    }
     pub fn get_expr(&self, id: ExprId) -> Result<&Expr, ParserErr> {
         self.exprs.get(id.0).ok_or(
             ParserErr::Invalid(format!("expr {:?} doesn't exist", id)))
@@ -402,27 +432,21 @@ impl Parser {
         self.stmts.get(id.0).ok_or(
             ParserErr::Invalid(format!("stmt {:?} doesn't exist", id)))
     }
-    fn parse_vardec(&mut self, lhs: ExprId) -> Result<ExprId, ParserErr> {
-        let symbol: Symbol;
-        match self.get_expr(lhs)? {
-            Expr::Symbol(s) => symbol = s.clone(),
-            _ => {
-                return Err(ParserErr::Invalid(String::from(
-                            "vardec lhs must be a symbol.")));
-            }
-        }
+    // horrible looking function
+    fn parse_vardec(&mut self) -> Result<StmtId, ParserErr> {
+        let ident = self.expect_ident()?;
         match self.current() {
             lexer::Token::Symbol(s,_span) => {
                 match s.as_str() {
                     ":=" => { // "a := ..."
                         self.next();
                         let rhs = self.parse_expr()?;
-                        let e = Expr::VarDec(VarDec {
-                            s: symbol,
+                        let e = Stmt::VarDec(VarDec {
+                            s: ident,
                             ty: Option::None,
                             val: Option::Some(rhs)
                         });
-                        Ok(self.new_expr(e))
+                        Ok(self.new_stmt(e))
                     },
                     ":" => { // "a : type..."
                         let t = self.parse_type()?;
@@ -433,16 +457,16 @@ impl Parser {
                                 if next.as_str() == "=" => {
                                     self.next();
                                     let rhs = self.parse_expr()?;
-                                    let e = Expr::VarDec(VarDec{
-                                        s: symbol,
+                                    let e = Stmt::VarDec(VarDec{
+                                        s: ident,
                                         ty: Some(t),
                                         val: Some(rhs),
                                     });
-                                    Ok(self.new_expr(e))
+                                    Ok(self.new_stmt(e))
                                 }
                             // "a: type"
-                            _ => Ok(self.new_expr(Expr::VarDec(VarDec{
-                                s: symbol,
+                            _ => Ok(self.new_stmt(Stmt::VarDec(VarDec{
+                                s: ident,
                                 ty: Some(t),
                                 val: None,
                             }))),
@@ -473,9 +497,39 @@ impl Parser {
         }
     }
     fn parse_expr_stmt(&mut self) -> Result<StmtId, ParserErr> {
-        let s = Stmt::Expr(self.parse_assignment_expr()?);
-        self.expect(";")?; // expect semicolon
-        Ok(self.new_stmt(s))
+        if self.current().is_ident() && self.peek().is_vardec_symbol() {
+            let r = self.parse_vardec()?;
+            self.expect(";")?; // expect semicolon
+            return Ok(r);
+        }
+        // could have index or field access as lvalues,
+        // so check if it's an assignment
+        let s = self.parse_expr()?;
+        if self.current().is_assingment_symbol() {
+            let kind = self.next();
+            let assignment = Assignment {
+                left: s,
+                right: self.parse_expr()?,
+                kind: if kind.is_symbol("=") {
+                    AssignmentKind::Assign
+                } else if kind.is_symbol("+=") {
+                    AssignmentKind::AddAssign
+                } else if kind.is_symbol("-=") {
+                    AssignmentKind::SubAssign
+                } else if kind.is_symbol("*=") {
+                    AssignmentKind::MltAssign
+                } else if kind.is_symbol("/=") {
+                    AssignmentKind::DivAssign
+                } else {
+                    panic!("what");
+                }
+            };
+            self.expect(";")?; // expect semicolon
+            Ok(self.new_stmt(Stmt::Assignment(assignment)))
+        } else {
+            self.expect(";")?; // expect semicolon
+            Ok(self.new_stmt(Stmt::Expr(s)))
+        }
     }
     fn parse_module_tls(&mut self) -> Result<Vec<StmtId>, ParserErr> {
         let mut stmts: Vec<StmtId> = vec![];
