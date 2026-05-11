@@ -1,14 +1,10 @@
-use std::fs::read_to_string;
-
-mod lexer;
+mod resolver;
 mod parser;
+mod lexer;
+mod symbols;
 
 fn main() -> Result<(), parser::ParserErr> {
-    let code = read_to_string("main.gala").unwrap();
-    let lexer = lexer::Lexer::from_code(&code).unwrap_or_else(|err| {
-        panic!("error {}", err);});
-    println!("end");
-    parser::Parser::parse(lexer); // takes ownership
+    resolver::ModuleContext::new();
     // let _  = resolver::Resolver::new(p).unwrap();
     /*let types = type_check::TypeChecker::resolve(&mut resolved, &p).unwrap();
     // owns it all now

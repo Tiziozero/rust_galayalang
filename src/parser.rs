@@ -1,10 +1,17 @@
-use std::{fmt::{Debug, Display}, thread::current, time::TryFromFloatSecsError};
-// type NodeId = usize; // use this for nodes ig?
+use std::fmt::{Debug, Display};
+
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
-// pub struct NodeId(usize);
 pub struct StmtId(usize);
+
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExprId(usize);
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ModId(usize);
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ItemId(usize);
+
 use crate::lexer::{self, Keyword, Token};
 
 #[derive(Debug)]
@@ -35,9 +42,9 @@ pub struct Binop {
     pub kind: BinopKind,
 }
 #[derive(Clone,Debug)]
-pub enum Type {
+pub enum TypeSpecifier {
     Base(String),
-    Pointer(Box<Type>),
+    Pointer(Box<TypeSpecifier>),
 }
 #[derive(Clone,Debug)]
 pub struct Symbol {
@@ -45,14 +52,13 @@ pub struct Symbol {
 }
 #[derive(Clone, Debug)]
 pub struct IfElseAltCond {
-    cond: ExprId,
-    block: Block,
+    pub cond: ExprId,
+    pub block: Block,
 }
 #[derive(Clone,Debug)]
-
 pub struct VarDec {
     pub s: String, // name
-    pub ty: Option<Type>, // type if defied else infer
+    pub ty: Option<TypeSpecifier>, // type if defied else infer
     pub val: Option<ExprId>, // optional initalisation value
 }
 #[derive(Clone,Debug)]
@@ -61,8 +67,8 @@ pub struct Number {
 }
 #[derive(Clone,Debug)]
 pub struct FnCall {
-    target: ExprId,
-    args: Vec<ExprId>,
+    pub target: ExprId,
+    pub args: Vec<ExprId>,
 }
 #[derive(Clone,Debug)]
 pub enum Expr {
@@ -74,57 +80,60 @@ pub enum Expr {
 
 #[derive(Clone, Debug)]
 pub struct FnDecArg {
-    name: String,
-    ty: Type,
+    pub name: String,
+    pub ty: TypeSpecifier,
 }
 #[derive(Clone, Debug)]
 pub struct FnDec {
-    name: String,
-    args: Vec<FnDecArg>,
-    ret_ty: Option<Type>,
-    body: Option<Block>,
+    pub name: String,
+    pub args: Vec<FnDecArg>,
+    pub ret_ty: Option<TypeSpecifier>,
+    pub body: Option<Block>,
 }
 #[derive(Clone, Debug)]
 pub struct IfStmt {
-    cond: ExprId,
-    block: Block,
-    alt: Vec<IfElseAltCond>,
-    else_block: Option<Block>,
+    pub cond: ExprId,
+    pub block: Block,
+    pub alt: Vec<IfElseAltCond>,
+    pub else_block: Option<Block>,
 }
 #[derive(Clone, Debug)]
 pub enum Stmt {
     IfStmt(IfStmt),
-    FnDec(FnDec),
     VarDec(VarDec),
     Expr(ExprId),
     Assignment(Assignment),
     // if/else, fn dec, struct dec and what not
 }
-impl Expr { // get id. thanks claude!
-}
-#[derive(Debug)]
-pub struct Scope {
-    pub stmts: Vec<StmtId>,
-}
+
 #[derive(Clone)]
 pub struct Block {
     pub stmts: Vec<StmtId>,
 }
 impl Debug for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Fn Body")
+        write!(f, "Block")
     }
 }
 
-const DONT_PARSE_STRUCT_LITS: usize = 0b1;
+#[derive(Debug)]
+pub enum Item {
+    FnDec(FnDec),
+}
+#[derive(Debug)]
+pub struct Module {
+    pub items: Vec<ItemId>
+}
 
 #[derive(Debug)]
 pub struct Parser {
-    stmts: Vec<Stmt>,
-    exprs: Vec<Expr>,
+    stmts:  Vec<Stmt>,
+    exprs:  Vec<Expr>,
+    items:  Vec<Item>,
+    mods:   Vec<Module>,
     lexer: lexer::Lexer,
     flags: usize,
-    pub root: Scope,
+    pub root: ModId,
 }
 impl Parser {
     fn new_stmt(&mut self, stmt: Stmt) -> StmtId {
@@ -134,6 +143,14 @@ impl Parser {
     fn new_expr(&mut self, expr: Expr) -> ExprId {
         self.exprs.push(expr);
         return ExprId(self.exprs.len() - 1);
+    }
+    fn new_module(&mut self, m: Module) -> ModId {
+        self.mods.push(m);
+        return ModId(self.mods.len() - 1);
+    }
+    fn new_item(&mut self, item: Item) -> ItemId {
+        self.items.push(item);
+        return ItemId(self.items.len() - 1);
     }
     fn current(&mut self) -> lexer::Token {
         return if let Some(t) = self.lexer.current() {
@@ -200,19 +217,6 @@ impl Parser {
                         format!("keyword {:?}", kw)),self.current())),
         }
     }
-    fn is_kw(&mut self, kw: Keyword) -> bool {
-        match self.current() {
-            Token::Keyword(k, _) =>{
-                if k == kw {
-                    self.next();
-                    true
-                } else {
-                    false
-                }
-            }
-            _=> false
-        }
-    }
     fn parse_if_condition(&mut self) -> Result<ExprId, ParserErr> {
         self.parse_expr() // anny assignment expr
         
@@ -254,7 +258,7 @@ impl Parser {
             _ => self.parse_expr_stmt()
         }
     }
-    fn parse_fn_dec(&mut self) -> Result<StmtId,ParserErr> {
+    fn parse_fn_dec(&mut self) -> Result<ItemId,ParserErr> {
         // make sure it's kw fn
         if !matches!(self.current(), Token::Keyword(lexer::Keyword::Fn, _)) {
             return Err(ParserErr::Expected(
@@ -267,7 +271,7 @@ impl Parser {
             vec![]
         } else { self.parse_fn_dec_args()? };
         self.expect(")")?;
-        let ret_ty: Option<Type> = match self.current() {
+        let ret_ty: Option<TypeSpecifier> = match self.current() {
             Token::Symbol(s,_) if s == ":" => {
                 self.next();
                 Some(self.parse_type()?)
@@ -286,7 +290,7 @@ impl Parser {
         let fndec = FnDec {
             name, args, ret_ty, body
         };
-        Ok(self.new_stmt(Stmt::FnDec(fndec)))
+        Ok(self.new_item(Item::FnDec(fndec)))
     }
     // consumes
     fn expect_ident(&mut self) -> Result<String,ParserErr>{
@@ -413,19 +417,20 @@ impl Parser {
             },
         }
     }
-    fn is_ident(&mut self) -> bool {
-        if matches!(self.current(), Token::Ident(_,_)) {
-            true
-        } else {
-            false
-        }
-    }
     fn parse_expr(&mut self) -> Result<ExprId, ParserErr> {
         self.parse_binop()
     }
     pub fn get_expr(&self, id: ExprId) -> Result<&Expr, ParserErr> {
         self.exprs.get(id.0).ok_or(
             ParserErr::Invalid(format!("expr {:?} doesn't exist", id)))
+    }
+    pub fn get_module(&self, id: ModId) -> Result<&Module, ParserErr> {
+        self.mods.get(id.0).ok_or(
+            ParserErr::Invalid(format!("module {:?} doesn't exist", id)))
+    }
+    pub fn get_item(&self, id: ItemId) -> Result<&Item, ParserErr> {
+        self.items.get(id.0).ok_or(
+            ParserErr::Invalid(format!("item {:?} doesn't exist", id)))
     }
 
     pub fn get_stmt(&self, id: StmtId) -> Result<&Stmt, ParserErr> {
@@ -478,20 +483,20 @@ impl Parser {
             _=>panic!("expected vardec symbol"),
         }
     }
-    fn parse_type(&mut self) -> Result<Type, ParserErr> {
+    fn parse_type(&mut self) -> Result<TypeSpecifier, ParserErr> {
         match self.current() {
             lexer::Token::Symbol(s,_span) => {
                 match s.as_str() {
                     "*" => {
                         self.next();
-                        return Ok(Type::Pointer(Box::new(self.parse_type()?)));
+                        return Ok(TypeSpecifier::Pointer(Box::new(self.parse_type()?)));
                     },
                     _ => panic!("invalid symbol in type"),
                 }
             }
             lexer::Token::Ident(i,_span) => {
                 self.next();
-                return Ok(Type::Base(i));
+                return Ok(TypeSpecifier::Base(i));
             },
             _ => panic!("Handle"),
         }
@@ -531,8 +536,8 @@ impl Parser {
             Ok(self.new_stmt(Stmt::Expr(s)))
         }
     }
-    fn parse_module_tls(&mut self) -> Result<Vec<StmtId>, ParserErr> {
-        let mut stmts: Vec<StmtId> = vec![];
+    fn parse_module_tls(&mut self) -> Result<Vec<ItemId>, ParserErr> {
+        let mut stmts: Vec<ItemId> = vec![];
         loop {
             let t = self.current();
             match t {
@@ -556,9 +561,13 @@ impl Parser {
     pub fn parse(lexer: lexer::Lexer) -> Self {
         let mut p: Parser = Parser{
             flags: 0,
-            exprs: Vec::new(),
-            stmts: Vec::new(),
-            lexer,root:Scope{stmts:Vec::new()}};
+            exprs:  Vec::new(),
+            stmts:  Vec::new(),
+            items:  Vec::new(),
+            mods:   Vec::new(),
+            lexer,
+            root: ModId(0),
+        };
         let root = match  p.parse_module_tls() {
             Ok(root) => root,
             Err(e) => match e {
@@ -571,7 +580,7 @@ impl Parser {
             },
         };
         println!("AST: {:?}", root);
-        p.root=Scope { stmts: root };
+        p.root = p.new_module(Module { items: root });
         return p;
     }
 }
