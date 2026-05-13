@@ -1,64 +1,57 @@
 use std::collections::HashMap;
 
-use crate::parser::{self, Item, ItemId, ModId};
+use crate::parser::{self, Item, ItemId, ModId, TypeSpecifier};
 
 use parser::{ExprId, StmtId};
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+pub struct TypeId(usize);
 
 pub struct Object {
 }
 pub struct FnArg {
     name: String,
-    ty: Box<Type>,
+    ty: TypeId,
 }
 pub struct Function {
     args: Vec<FnArg>,
-    ret_ty: Option<Box<Type>>,
+    ret_ty: Option<TypeId>,
 }
 pub enum Type {
     I32, F32,
     Function(Function),
+    Pointer(TypeId),
 }
 #[derive(Eq,PartialEq,Hash,Debug,Clone,Copy)]
 pub struct ScopeId(usize);
 #[derive(Debug)] // optional reference to parent
 struct Scope {
     parent: Option<ScopeId>,
-    symbols: HashMap<String, SymbolId>,
-}
-
-#[derive(Debug,Clone)]
-struct FnPreDecArg {
-    name:String,
-    ty: parser::TypeSpecifier, // parser type
-}
-#[derive(Debug,Clone)]
-struct FnPreDec {
-    name: String,
-    args: Vec<FnPreDecArg>,
-    ret_ty: Option<parser::TypeSpecifier>,
-}
-#[derive(Debug,Clone)]
-enum PreDec {
-    Fn(FnPreDec),
+    objects: HashMap<String, ObjectId>,
+    types: HashMap<String, ObjectId>,
 }
 struct Module {
-    pre_decs: HashMap<String, PreDec>,
     scope: ScopeId,
 }
 #[derive(Eq,PartialEq,Hash,Debug,Clone,Copy)]
-pub struct SymbolId(usize);
+pub struct ObjectId(usize);
 pub struct SymbolTable {
-    refs:HashMap<ExprId,SymbolId>,
-    objects: HashMap<SymbolId,Object>,
-    types: HashMap<SymbolId,Type>,
+    refs:HashMap<ExprId,ObjectId>,
+    objects: HashMap<ObjectId,Object>,
+    types: HashMap<TypeId,Type>,
     scopes: Vec<Scope>,
     global_scope: ScopeId,
+    current_scope: ScopeId,
     p: parser::Parser,
+    files: HashMap<String,parser::Parser>,
 }
 impl SymbolTable {
     fn new(p: parser::Parser) -> Self {
         let mut scopes = Vec::new();
-        scopes.push(Scope{parent:None, symbols:HashMap::new()});
+        scopes.push(Scope{
+            parent:None,
+            objects:HashMap::new(),
+            types:HashMap::new(),
+        });
         let sid = ScopeId(scopes.len() - 1);
         Self {
             refs: HashMap::new(),
@@ -67,19 +60,25 @@ impl SymbolTable {
             p,
             scopes: scopes,
             global_scope: sid,
+            current_scope: sid,
+            files: HashMap::new(),
         }
     }
     fn get_scope(&mut self, id: ScopeId) -> Option<&Scope> {
         self.scopes.get(id.0)
     }
     fn new_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
-        self.scopes.push(Scope { parent: parent, symbols: HashMap::new()});
+        self.scopes.push(Scope {
+            parent: parent,
+            objects: HashMap::new(),
+            types: HashMap::new(),
+        });
         ScopeId(self.scopes.len() - 1)
     }
-    pub fn get_object(&mut self, id: SymbolId) -> Option<&Object> {
+    pub fn get_object(&mut self, id: ObjectId) -> Option<&Object> {
         self.objects.get(&id)
     }
-    pub fn get_type(&mut self, id: SymbolId) -> Option<&Type> {
+    pub fn get_type(&mut self, id: TypeId) -> Option<&Type> {
         self.types.get(&id)
     }
     fn resolve_expr(&mut self, exprid: ExprId) -> Result<(), String> {
@@ -91,12 +90,28 @@ impl SymbolTable {
     fn new_object(&mut self, o: Object) -> Result<(), String> {
         panic!("Implement");
     }
+    fn scope_get_type(&mut self, name: &String) -> Result<TypeId,String> {
+        panic!("impl");
+    }
+    fn scope_get_object(&mut self, name: &String) -> Result<ObjectId,String> {
+        panic!("impl");
+    }
+    fn resolve_type(&mut self, ty: &TypeSpecifier) -> Result<TypeId, String> {
+        let name = ty.name();
+
+        panic!("Handle");
+    }
     // create fn dec
     fn resolve_fndec(&mut self, fn_dec: parser::FnDec) -> Result<(), String> {
         // create type first, resolve that, then create object
         // resolve args:
 
+        let mut argdecs = Vec::<FnArg>::new();
         for a in fn_dec.args {
+            let arg = FnArg{
+                name: a.name,
+                ty: B
+            };
         }
         panic!("Implement");
     }

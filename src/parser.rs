@@ -46,6 +46,14 @@ pub enum TypeSpecifier {
     Base(String),
     Pointer(Box<TypeSpecifier>),
 }
+impl TypeSpecifier {
+    pub fn name(&self) -> String {
+        match self {
+            Self::Base(s) => s.clone(),
+            Self::Pointer(b) => b.name()
+        }
+    }
+}
 #[derive(Clone,Debug)]
 pub struct Symbol {
     pub symbol: String,
