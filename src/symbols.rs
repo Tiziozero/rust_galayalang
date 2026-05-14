@@ -1,6 +1,7 @@
 use std::{collections::HashMap};
 
 use crate::parser::{self, Item, ItemId, ModId, TypeSpecifier};
+use crate::{debugln,debug};
 
 use parser::{ExprId, StmtId};
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -43,10 +44,10 @@ pub enum Type {
     Function(Function),
     Pointer(TypeId),
 }
-#[derive(Eq,PartialEq,Hash,Debug,Clone,Copy)]
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ScopeId(usize);
-#[derive(Debug)] // optional reference to parent
-struct Scope {
+#[derive(Clone,Debug)] // optional reference to parent
+pub struct Scope {
     parent: Option<ScopeId>,
     objects: HashMap<String, ObjectId>,
     types: HashMap<String, TypeId>,
@@ -88,6 +89,9 @@ impl<'ctx> SymbolResolver<'ctx> {
     fn get_scope(&mut self, id: ScopeId) -> Option<&Scope> {
         self.scopes.get(id.0)
     }
+    fn get_scope_mut(&mut self, id: ScopeId) -> Option<&mut Scope> {
+        self.scopes.get_mut(id.0)
+    }
     fn new_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
         self.scopes.push(Scope {
             parent: parent,
@@ -106,12 +110,6 @@ impl<'ctx> SymbolResolver<'ctx> {
             None => panic!("Can't exit scope. has no parent"),
         }
     }
-    pub fn get_object(&mut self, id: ObjectId) -> Option<&Object> {
-        self.ctx.get_object(id)
-    }
-    pub fn get_type(&mut self, id: TypeId) -> Option<&Type> {
-        self.ctx.get_type(id)
-    }
     fn resolve_expr(&mut self, exprid: ExprId) -> Result<(), String> {
         let p = self.get_current_ast()?;
         match p.get_expr(exprid).unwrap() {
@@ -120,15 +118,17 @@ impl<'ctx> SymbolResolver<'ctx> {
         // Ok(())
     }
     fn new_object(&mut self, name: String, ty: Option<Type>) -> Result<ObjectId, String> {
-        let o = Object { name, ty };
-        Ok(self.ctx.new_object(o))
+        let o = Object { name: name.clone(), ty };
+        let id = self.ctx.new_object(o);
+        self.get_scope_mut(self.current_scope).unwrap().new_object(name, id);
+        Ok(id)
     }
     fn scope_get_object(&mut self, name: &String) -> Result<ObjectId,String> {
         let mut id = self.current_scope;
         loop {
             match self.get_scope(id) {
                 Some(s) => {
-                    match s.objects.get(name) {
+                    match s.get_object(name) {
                         Some(t) => return Ok(*t),
                         None => {
                             match s.parent {
@@ -148,13 +148,13 @@ impl<'ctx> SymbolResolver<'ctx> {
         loop {
             match self.get_scope(id) {
                 Some(s) => {
-                    match s.types.get(name) {
+                    match s.get_type(name) {
                         Some(t) => return Ok(*t),
                         None => {
                             match s.parent {
                                 Some(pid) => id = pid,
-                                None =>
-                                    return Err(String::from("Type does not exist"))
+                                None => // check base 
+                                    return self.ctx.base_scope_get_type(name)
                             }
                         }
                     }
@@ -189,7 +189,6 @@ impl<'ctx> SymbolResolver<'ctx> {
     fn resolve_fndec(&mut self, fn_dec: parser::FnDec) -> Result<(), String> {
         // create type first, resolve that, then create object
         // resolve args:
-
         self.enter_scope(); // for fn recursion + args
         let argdecs = Vec::<FnArg>::new();
         for a in fn_dec.args {
@@ -239,11 +238,22 @@ impl<'ctx> SymbolResolver<'ctx> {
         let p = self.current_p.as_ref().ok_or(String::from("No cuurent parser in st"))?;
         match p.get_stmt(stmtid).unwrap() {
             parser::Stmt::Expr(exprid) => {
-                self.resolve_expr(*exprid)?;
+                self.resolve_expr(*exprid)
+            },
+            parser::Stmt::VarDec(vardec) => {
+                let t = if let Some(ty) = vardec.ty.clone() {
+                    Some(self.resolve_type(&ty))
+                } else {
+                    None
+                };
+                let name = vardec.s.clone();
+                if let Some(v) = vardec.val {
+                    self.resolve_expr(v)?;
+                }
+                panic!("impl");
             },
             s => panic!("Impl stmt check for {:?}", s),
         }
-        Ok(())
     }
     fn resolve_module(&mut self, modid: ModId) -> Result<(), String> {
         self.resolve_mod_decs(modid)?;
@@ -258,5 +268,26 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.current_p = Some(p);
         self.resolve_module(m)?;
         Ok(())
+    }
+}
+impl Scope {
+    pub fn new(parent: Option<ScopeId>) -> Self {
+        Scope {
+            parent: parent,
+            objects: HashMap::new(),
+            types: HashMap::new(),
+        }
+    }
+    pub fn get_type(&self, name: &String) -> Option<&TypeId> {
+        self.types.get(name)
+    }
+    pub fn get_object(&self, name: &String) -> Option<&ObjectId> {
+        self.objects.get(name)
+    }
+    pub fn new_object(&mut self, name: String, id: ObjectId) {
+        self.objects.insert(name, id);
+    }
+    pub fn new_type(&mut self, name: String, id: TypeId) {
+        self.types.insert(name, id);
     }
 }

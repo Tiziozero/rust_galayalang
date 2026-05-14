@@ -50,7 +50,7 @@ impl TypeSpecifier {
     pub fn name(&self) -> String {
         match self {
             Self::Base(s) => s.clone(),
-            Self::Pointer(b) => b.name()
+            Self::Pointer(b) => format!("*{}", b.name()),
         }
     }
 }
@@ -292,7 +292,7 @@ impl Parser {
             Token::Symbol(s,_) if s == "{" => {
                 Some(self.parse_block()?)
             },
-            _=> None,
+            _=> panic!("Need body"),
         };
 
         let fndec = FnDec {

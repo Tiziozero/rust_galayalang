@@ -2,6 +2,8 @@ mod resolver;
 mod parser;
 mod lexer;
 mod symbols;
+mod debug;
+mod utils;
 
 fn main() -> Result<(), parser::ParserErr> {
     let mut r = resolver::Context::new();

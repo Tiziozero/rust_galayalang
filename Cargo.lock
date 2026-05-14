@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "rustachian"
+name = "galayac"
 version = "0.1.0"
