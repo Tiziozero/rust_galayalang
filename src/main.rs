@@ -4,7 +4,8 @@ mod lexer;
 mod symbols;
 
 fn main() -> Result<(), parser::ParserErr> {
-    resolver::ModuleContext::new();
+    let mut r = resolver::Context::new();
+    r.add_module(String::from("main.gala"));
     // let _  = resolver::Resolver::new(p).unwrap();
     /*let types = type_check::TypeChecker::resolve(&mut resolved, &p).unwrap();
     // owns it all now
