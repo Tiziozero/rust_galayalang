@@ -235,14 +235,16 @@ impl<'ctx> SymbolResolver<'ctx> {
         Ok(())
     }
     fn resolve_stmt(&mut self, stmtid: StmtId) -> Result<(), String> {
-        let p = self.current_p.as_ref().ok_or(String::from("No cuurent parser in st"))?;
-        match p.get_stmt(stmtid).unwrap() {
+        let stmt = self.current_p.as_mut().unwrap().get_stmt(stmtid).unwrap();
+        match stmt.clone() {
             parser::Stmt::Expr(exprid) => {
-                self.resolve_expr(*exprid)
+                self.resolve_expr(exprid)
             },
             parser::Stmt::VarDec(vardec) => {
                 let t = if let Some(ty) = vardec.ty.clone() {
-                    Some(self.resolve_type(&ty))
+                    let clone = ty.clone();
+                    let r = self.resolve_type(&clone); 
+                    Some(r)
                 } else {
                     None
                 };
