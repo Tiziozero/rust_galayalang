@@ -319,8 +319,14 @@ impl<'ctx> SymbolResolver<'ctx> {
         Ok(())
     }
     fn resolve_assignment(&mut self, a: &parser::Assignment) -> Result<(), String> {
-
-        panic!("impl");
+        self.resolve_expr(a.left)?;
+        self.resolve_expr(a.right)?;
+        if !self.get_current_ast().unwrap()
+            .get_expr(a.left).unwrap().is_lvalue() {
+            return Err(String::from(
+                    format!("assignment target is not an lvalue")));
+        }
+        Ok(())
     }
     fn resolve_stmt(&mut self, stmtid: StmtId) -> Result<(), String> {
         let stmt = self.current_p.as_mut().unwrap().get_stmt(stmtid).unwrap();
@@ -337,7 +343,10 @@ impl<'ctx> SymbolResolver<'ctx> {
             parser::Stmt::Assignment(a) => {
                 self.resolve_assignment(&a)
             },
-            s => panic!("Impl stmt check for {:?}", s),
+            parser::Stmt::Return(id) => {
+                self.resolve_expr(id)
+            }
+            // s => panic!("Impl stmt check for {:?}", s),
         }
     }
     fn resolve_item_forward_dec(&mut self, itemid: ItemId) -> Result<(), String> {

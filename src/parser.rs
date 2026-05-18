@@ -35,6 +35,15 @@ pub struct Assignment {
     pub right: ExprId,
     pub kind: AssignmentKind,
 }
+
+impl Expr {
+    pub fn is_lvalue(&self) -> bool {
+        match self {
+            Expr::Symbol(_) => true,
+            _ => false,
+        }
+    }
+}
 #[derive(Clone,Debug)]
 pub struct Binop {
     pub left: ExprId,
@@ -111,6 +120,7 @@ pub enum Stmt {
     VarDec(VarDec),
     Expr(ExprId),
     Assignment(Assignment),
+    Return(ExprId),
     // if/else, fn dec, struct dec and what not
 }
 
@@ -229,6 +239,12 @@ impl Parser {
         self.parse_expr() // anny assignment expr
         
     }
+    fn parse_return_stmt(&mut self) -> Result<StmtId, ParserErr> {
+        self.expect_kw(Keyword::Return)?;
+        let expr = self.parse_expr()?;
+        self.expect(";")?;
+        Ok(self.new_stmt(Stmt::Return(expr)))
+    }
     fn parse_if_stmt(&mut self) -> Result<StmtId, ParserErr> {
         self.expect_kw(Keyword::If)?;
         let cond = self.parse_if_condition()?;
@@ -262,6 +278,9 @@ impl Parser {
         match self.current() {
             lexer::Token::Keyword(lexer::Keyword::If, _) => {
                 self.parse_if_stmt()
+            },
+            lexer::Token::Keyword(lexer::Keyword::Return, _) => {
+                self.parse_return_stmt()
             },
             _ => self.parse_expr_stmt()
         }
