@@ -4,6 +4,7 @@ use crate::lexer;
 use crate::symbols;
 use crate::symbols::ObjectId;
 use crate::debugln;
+use crate::symbols::Type;
 
 pub struct Context {
     objects: Vec<symbols::Object>,
@@ -18,10 +19,10 @@ impl Context {
             types: Vec::new(),
             base_scope:symbols::Scope::new(None),
         };
-        let mut tid = s.new_type(symbols::Type::I32);
-        s.base_scope.new_type("i32".into(), tid);
-        tid = s.new_type(symbols::Type::F32);
-        s.base_scope.new_type("f32".into(), tid);
+        let mut tid = s.declare_type(symbols::Type::I32);
+        s.base_scope.declare_type("i32".into(), tid).unwrap();
+        tid = s.declare_type(symbols::Type::F32);
+        s.base_scope.declare_type("f32".into(), tid).unwrap();
         s
     }
     pub fn get_object(&mut self, id: symbols::ObjectId) -> Option<&symbols::Object> {
@@ -30,11 +31,19 @@ impl Context {
     pub fn get_type(&mut self, id: symbols::TypeId) -> Option<&symbols::Type> {
         self.types.get(id.0)
     }
-    pub fn new_object(&mut self, obj: symbols::Object) -> symbols::ObjectId {
+    pub fn declare_object(&mut self, obj: symbols::Object) -> symbols::ObjectId {
         self.objects.push(obj);
         symbols::ObjectId(self.objects.len() -1)
     }
-    pub fn new_type(&mut self, ty: symbols::Type) -> symbols::TypeId {
+    pub fn update_object(&mut self, id: ObjectId, obj: symbols::Object) -> symbols::ObjectId {
+        self.objects[id.0] = obj;
+        id
+    }
+    pub fn update_type(&mut self, id: symbols::TypeId, ty: symbols::Type) -> symbols::TypeId {
+        self.types[id.0] = ty;
+        id
+    }
+    pub fn declare_type(&mut self, ty: symbols::Type) -> symbols::TypeId {
         self.types.push(ty);
         symbols::TypeId(self.types.len() -1)
     }

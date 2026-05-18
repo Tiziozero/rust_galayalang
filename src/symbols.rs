@@ -1,7 +1,7 @@
 use std::{collections::HashMap};
 
 use crate::parser::{self, Item, ItemId, ModId, TypeSpecifier};
-use crate::{debugln,debug};
+use crate::{debugln};
 
 use parser::{ExprId, StmtId};
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
@@ -51,6 +51,8 @@ pub struct Scope {
     parent: Option<ScopeId>,
     objects: HashMap<String, ObjectId>,
     types: HashMap<String, TypeId>,
+    object_forward_decs: HashMap<String, ObjectId>,
+    type_forward_decs: HashMap<String, TypeId>,
 }
 pub struct Module {
     objects: Vec<Object>,
@@ -75,6 +77,8 @@ impl<'ctx> SymbolResolver<'ctx> {
             parent:None,
             objects:HashMap::new(),
             types:HashMap::new(),
+            object_forward_decs:HashMap::new(),
+            type_forward_decs:HashMap::new(),
         });
         let sid = ScopeId(scopes.len() - 1);
         Self {
@@ -97,6 +101,8 @@ impl<'ctx> SymbolResolver<'ctx> {
             parent: parent,
             objects: HashMap::new(),
             types: HashMap::new(),
+            object_forward_decs: HashMap::new(),
+            type_forward_decs: HashMap::new(),
         });
         ScopeId(self.scopes.len() - 1)
     }
@@ -109,6 +115,17 @@ impl<'ctx> SymbolResolver<'ctx> {
             Some(s) => self.current_scope = s,
             None => panic!("Can't exit scope. has no parent"),
         }
+    }
+    fn resolve_fn_call(&mut self, fn_call: &parser::FnCall)
+        -> Result<(), String> {
+
+        // resolve target
+        self.resolve_expr(fn_call.target)?;
+        // resolve args
+        for a in &fn_call.args {
+            self.resolve_expr(*a)?;
+        }
+        Ok(())
     }
     fn resolve_expr(&mut self, exprid: ExprId) -> Result<(), String> {
         let expr = self.get_current_ast()?.get_expr(exprid).unwrap().clone();
@@ -125,14 +142,28 @@ impl<'ctx> SymbolResolver<'ctx> {
                 self.resolve_expr(binop.right)?;
                 Ok(())
             }
-            e => panic!("Impl expr check for {:?}", e),
+            parser::Expr::FnCall(fn_call) => {
+                self.resolve_fn_call(&fn_call)
+            },
+            // e => panic!("Impl expr check for {:?}", e),
         }
         // Ok(())
     }
-    fn new_object(&mut self, name: String, ty: Option<TypeId>) -> Result<ObjectId, String> {
+    fn declare_object(&mut self, name: String, ty: Option<TypeId>) ->
+        Result<ObjectId, String> {
         let o = Object { name: name.clone(), ty };
-        let id = self.ctx.new_object(o);
-        self.get_scope_mut(self.current_scope).unwrap().new_object(name, id);
+        // if it's a predec
+        if let Some(id) = self.get_scope(self.current_scope).unwrap()
+            .is_object_foreward_dec(&name) {
+            self.ctx.update_object(id, o);
+            self.get_scope_mut(self.current_scope).unwrap()
+                .declare_object(name.clone(), id)?;
+            return Ok(id);
+        }
+        let id = self.ctx.declare_object(o);
+        self.get_scope_mut(self.current_scope).unwrap()
+            .declare_object(name.clone(), id)?;
+        debugln!("Adding object {} to scope {:?}", name, self.current_scope);
         Ok(id)
     }
     fn scope_get_object(&mut self, name: &String) -> Result<ObjectId,String> {
@@ -192,7 +223,7 @@ impl<'ctx> SymbolResolver<'ctx> {
     fn resolve_type(&mut self, ty: &TypeSpecifier) -> Result<TypeId, String> {
         self.resolve_type_specifier(ty)
     }
-    fn resolve_fndec_body(&mut self, block: parser::Block) -> Result<(), String> {
+    fn resolve_block(&mut self, block: &parser::Block) -> Result<(), String> {
         let stmts = block.stmts.clone();
         for stmt in stmts {
             self.resolve_stmt(stmt)?;
@@ -219,18 +250,18 @@ impl<'ctx> SymbolResolver<'ctx> {
         });
         let interned = self.ctx.intern_type(fn_ty.clone());
         // define self for recursion
-        self.new_object(fn_dec.name.clone(),
+        self.declare_object(fn_dec.name.clone(),
                 Some(interned))?;
         // make sure body's alright
         if let Some(b) = fn_dec.body {
-            self.resolve_fndec_body(b)?;
+            self.resolve_block(&b)?;
         } else {
             panic!("Fn must have body");
         }
         self.exit_scope();
         let interned = self.ctx.intern_type(fn_ty.clone());
         // define it in scope
-        self.new_object(fn_dec.name.clone(),
+        self.declare_object(fn_dec.name.clone(),
                 Some(interned))?;
         Ok(())
     }
@@ -266,8 +297,30 @@ impl<'ctx> SymbolResolver<'ctx> {
             debugln!("verdec has expression");
             self.resolve_expr(v)?;
         }
-        self.new_object(name, t)?; // create object
+        self.declare_object(name, t)?; // create object
         Ok(())
+    }
+    fn resolve_if_stmt(&mut self, if_stmt: &parser::IfStmt)
+        -> Result<(), String> {
+
+        self.enter_scope(); // if cond/block
+        self.resolve_expr(if_stmt.cond)?;
+        self.resolve_block(&if_stmt.block)?;
+        self.exit_scope(); // base con/block
+        for alt in &if_stmt.alt {
+            self.enter_scope(); // alt if cond/block
+            self.resolve_expr(alt.cond)?;
+            self.resolve_block(&alt.block)?;
+            self.exit_scope(); // alt con/block
+        }
+        if let Some(b) = &if_stmt.else_block {
+            self.resolve_block(b)?;
+        }
+        Ok(())
+    }
+    fn resolve_assignment(&mut self, a: &parser::Assignment) -> Result<(), String> {
+
+        panic!("impl");
     }
     fn resolve_stmt(&mut self, stmtid: StmtId) -> Result<(), String> {
         let stmt = self.current_p.as_mut().unwrap().get_stmt(stmtid).unwrap();
@@ -278,10 +331,42 @@ impl<'ctx> SymbolResolver<'ctx> {
             parser::Stmt::VarDec(vardec) => {
                 self.resolve_vardec(&vardec)
             },
+            parser::Stmt::IfStmt(if_stmt) => {
+                self.resolve_if_stmt(&if_stmt)
+            },
+            parser::Stmt::Assignment(a) => {
+                self.resolve_assignment(&a)
+            },
             s => panic!("Impl stmt check for {:?}", s),
         }
     }
+    fn resolve_item_forward_dec(&mut self, itemid: ItemId) -> Result<(), String> {
+        let p = self.get_current_ast()?;
+        let i = p.get_item(itemid).unwrap();
+        match i {
+            Item::FnDec(fn_dec) => {
+                // declare place holder
+                let f = fn_dec.clone();
+                let o = Object{name: f.name.clone(), ty: None};
+                let id = self.ctx.declare_object(o.clone());
+                // declare predec
+                self.get_scope_mut(self.current_scope).unwrap()
+                    .declare_object_forward_dec(f.name.clone(), id)?;
+                Ok(())
+            },
+            // _ => panic!("Impl resolve item"),
+        }
+    }
+    fn resolve_mod_forward_decs(&mut self, modid: ModId) -> Result<(), String> {
+        let p = self.get_current_ast()?;
+        let m = p.get_module(modid).unwrap().items.clone(); // clone atp bro
+        for i in m {
+            self.resolve_item_forward_dec(i)?;
+        }
+        Ok(())
+    }
     fn resolve_module(&mut self, modid: ModId) -> Result<(), String> {
+        self.resolve_mod_forward_decs(modid)?;
         self.resolve_mod_decs(modid)?;
         Ok(())
     }
@@ -294,6 +379,12 @@ impl<'ctx> SymbolResolver<'ctx> {
         let m = p.root.clone();
         self.current_p = Some(p);
         self.resolve_module(m)?;
+        let mut k = 0;
+        for s in &self.scopes {
+            let d = s.object_forward_decs.len() + s.type_forward_decs.len();
+            println!(" scope {} has {} forward decs left.", k, d);
+            k += 1;
+        }
         Ok(())
     }
 }
@@ -303,18 +394,128 @@ impl Scope {
             parent: parent,
             objects: HashMap::new(),
             types: HashMap::new(),
+            object_forward_decs: HashMap::new(),
+            type_forward_decs: HashMap::new(),
         }
     }
     pub fn get_type(&self, name: &String) -> Option<&TypeId> {
-        self.types.get(name)
+        match self.types.get(name) {
+            Some(t) => Some(t),
+            None => self.type_forward_decs.get(name),
+        }
     }
     pub fn get_object(&self, name: &String) -> Option<&ObjectId> {
-        self.objects.get(name)
+        match self.objects.get(name) {
+            Some(o) => Some(o),
+            None => self.object_forward_decs.get(name),
+        }
     }
-    pub fn new_object(&mut self, name: String, id: ObjectId) {
+    pub fn declare_object(&mut self, name: String, id: ObjectId)
+        -> Result<(), String>{
+        // only one name per scope
+        if let Some(_) = self.objects.get(&name) {
+            return Err(String::from(
+                    format!("Object {} already exists.", name)));
+        }
+        if let Some(_) = self.types.get(&name) {
+            return Err(String::from(
+                    format!("Object {} already exists as type.", name)));
+        }
+        // check forward_decs
+        if let Some(_) = self.type_forward_decs.get(&name) {
+            return Err(String::from(
+                    format!("object {} is expected to be a type", name)));
+        }
+        if let Some(_) = self.object_forward_decs.get(&name) {
+            debugln!("Objecr {} is a forward dec", name);
+            self.object_forward_decs.remove(&name);
+        }
         self.objects.insert(name, id);
+        Ok(())
     }
-    pub fn new_type(&mut self, name: String, id: TypeId) {
+    pub fn declare_type(&mut self, name: String, id: TypeId)
+        -> Result<(), String>{
+        // only one name per scope
+        if let Some(_) = self.objects.get(&name) {
+            return Err(String::from(
+                    format!("Type {} already exists.", name)));
+        }
+        if let Some(_) = self.types.get(&name) {
+            return Err(String::from(
+                    format!("Type {} already exists as type.", name)));
+        }
+        // check forward_decs
+        if let Some(_) = self.object_forward_decs.get(&name) {
+            return Err(String::from(
+                    format!("Type {} is expected to be a object", name)));
+        }
+        if let Some(_) = self.type_forward_decs.get(&name) {
+            self.type_forward_decs.remove(&name);
+        }
         self.types.insert(name, id);
+        Ok(())
+    }
+    pub fn declare_type_forward_dec(&mut self, name: String, id: TypeId)
+        -> Result<(), String>{
+        // only one name per scope
+        if let Some(_) = self.objects.get(&name) {
+            return Err(String::from(
+                    format!("Type forward_dec {} already exists as an object.",
+                        name)));
+        }
+        if let Some(_) = self.types.get(&name) {
+            return Err(String::from(
+                    format!("Type forward_dec {} already exists.", name)));
+        }
+        // check forward_decs
+        if let Some(_) = self.type_forward_decs.get(&name) {
+            return Err(String::from(
+                    format!("Type forward_dec {} already exists as a type forward dec.",
+                        name)));
+        }
+        if let Some(_) = self.object_forward_decs.get(&name) {
+            return Err(String::from(
+                format!("Type forward_dec {} already exists as an object forward dec.",
+                    name)));
+        }
+        self.type_forward_decs.insert(name, id);
+        Ok(())
+    }
+    pub fn declare_object_forward_dec(&mut self, name: String, id: ObjectId)
+        -> Result<(), String>{
+        // only one name per scope
+        if let Some(_) = self.objects.get(&name) {
+            return Err(String::from(
+                    format!("object forward_dec {} already exists.", name)));
+        }
+        if let Some(_) = self.types.get(&name) {
+            return Err(String::from(
+                    format!("object forward_dec {} already exists as a type.", name)));
+        }
+        // check forward_decs
+        if let Some(_) = self.type_forward_decs.get(&name) {
+            return Err(String::from(
+                    format!("object forward_dec {} already exists as a type forward dec.",
+                        name)));
+        }
+        if let Some(_) = self.object_forward_decs.get(&name) {
+            return Err(String::from(
+                format!("object forward_dec {} already exists as an object forward dec.",
+                    name)));
+        }
+        self.object_forward_decs.insert(name, id);
+        Ok(())
+    }
+    pub fn is_object_foreward_dec(&self, name: &String) -> Option<ObjectId> {
+        match self.object_forward_decs.get(name) {
+            Some(id) => Some(id.clone()),
+            None => None,
+        }
+    }
+    pub fn is_type_foreward_dec(&self, name: &String) -> Option<TypeId> {
+        match self.type_forward_decs.get(name) {
+            Some(id) => Some(id.clone()),
+            None => None,
+        }
     }
 }
