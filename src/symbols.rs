@@ -9,6 +9,7 @@ pub struct TypeId(pub usize);
 
 #[derive(Debug,Clone)]
 pub struct Object {
+    mutable: bool,
     name: String,
     ty: Option<TypeId>,
 }
@@ -55,6 +56,7 @@ pub struct Scope {
     type_forward_decs: HashMap<String, TypeId>,
 }
 pub struct Module {
+    // decs
     objects: Vec<Object>,
     types: Vec<Type>,
     p: parser::Parser,
@@ -68,10 +70,10 @@ pub struct SymbolResolver<'ctx> {
     scopes: Vec<Scope>,
     global_scope: ScopeId,
     current_scope: ScopeId,
-    current_p: Option<parser::Parser>,
+    p: parser::Parser,
 }
 impl<'ctx> SymbolResolver<'ctx> {
-    pub fn new(ctx: &'ctx mut resolver::Context) -> Self {
+    pub fn new(ctx: &'ctx mut resolver::Context, p: parser::Parser) -> Self {
         let mut scopes = Vec::new();
         scopes.push(Scope{
             parent:None,
@@ -84,7 +86,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         Self {
             ctx,
             refs: HashMap::new(),
-            current_p: None,
+            p: p,
             scopes: scopes,
             global_scope: sid,
             current_scope: sid,
@@ -128,7 +130,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         Ok(())
     }
     fn resolve_expr(&mut self, exprid: ExprId) -> Result<(), String> {
-        let expr = self.get_current_ast()?.get_expr(exprid).unwrap().clone();
+        let expr = self.p.get_expr(exprid).unwrap().clone();
         match expr {
             parser::Expr::Number(_) => Ok(()),
             parser::Expr::Symbol(s) => {
@@ -149,9 +151,9 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
         // Ok(())
     }
-    fn declare_object(&mut self, name: String, ty: Option<TypeId>) ->
+    fn declare_object(&mut self, name: String, ty: Option<TypeId>, mutable: bool) ->
         Result<ObjectId, String> {
-        let o = Object { name: name.clone(), ty };
+        let o = Object { name: name.clone(), ty, mutable};
         // if it's a predec
         if let Some(id) = self.get_scope(self.current_scope).unwrap()
             .is_object_foreward_dec(&name) {
@@ -237,7 +239,8 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.enter_scope(); // for fn recursion + args
         let argdecs = Vec::<FnArg>::new();
         for a in fn_dec.args {
-            panic!("Impl arg res");
+            let t = self.resolve_type(&a.ty)?;
+            self.declare_object(a.name.clone(), Some(t), false)?;
         }
         // check type
         let ret_ty = match fn_dec.ret_ty {
@@ -251,7 +254,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         let interned = self.ctx.intern_type(fn_ty.clone());
         // define self for recursion
         self.declare_object(fn_dec.name.clone(),
-                Some(interned))?;
+                Some(interned), false)?;
         // make sure body's alright
         if let Some(b) = fn_dec.body {
             self.resolve_block(&b)?;
@@ -262,12 +265,11 @@ impl<'ctx> SymbolResolver<'ctx> {
         let interned = self.ctx.intern_type(fn_ty.clone());
         // define it in scope
         self.declare_object(fn_dec.name.clone(),
-                Some(interned))?;
+                Some(interned), false)?;
         Ok(())
     }
     fn resolve_item(&mut self, itemid: ItemId) -> Result<(), String> {
-        let p = self.get_current_ast()?;
-        let i = p.get_item(itemid).unwrap();
+        let i = self.p.get_item(itemid).unwrap();
         match i {
             Item::FnDec(fn_dec) => {
                 let f = fn_dec.clone();
@@ -277,8 +279,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
     }
     fn resolve_mod_decs(&mut self, modid: ModId) -> Result<(), String> {
-        let p = self.get_current_ast()?;
-        let m = p.get_module(modid).unwrap().items.clone(); // clone atp bro
+        let m = self.p.get_module(modid).unwrap().items.clone(); // clone atp bro
         for i in m {
             self.resolve_item(i)?;
         }
@@ -297,7 +298,7 @@ impl<'ctx> SymbolResolver<'ctx> {
             debugln!("verdec has expression");
             self.resolve_expr(v)?;
         }
-        self.declare_object(name, t)?; // create object
+        self.declare_object(name, t, true)?; // create object, mutable
         Ok(())
     }
     fn resolve_if_stmt(&mut self, if_stmt: &parser::IfStmt)
@@ -321,15 +322,15 @@ impl<'ctx> SymbolResolver<'ctx> {
     fn resolve_assignment(&mut self, a: &parser::Assignment) -> Result<(), String> {
         self.resolve_expr(a.left)?;
         self.resolve_expr(a.right)?;
-        if !self.get_current_ast().unwrap()
-            .get_expr(a.left).unwrap().is_lvalue() {
+        let expr = self.p.get_expr(a.left).unwrap();
+        if !expr.is_lvalue() {
             return Err(String::from(
                     format!("assignment target is not an lvalue")));
         }
         Ok(())
     }
     fn resolve_stmt(&mut self, stmtid: StmtId) -> Result<(), String> {
-        let stmt = self.current_p.as_mut().unwrap().get_stmt(stmtid).unwrap();
+        let stmt = self.p.get_stmt(stmtid).unwrap();
         match stmt.clone() {
             parser::Stmt::Expr(exprid) => {
                 self.resolve_expr(exprid)
@@ -349,14 +350,14 @@ impl<'ctx> SymbolResolver<'ctx> {
             // s => panic!("Impl stmt check for {:?}", s),
         }
     }
-    fn resolve_item_forward_dec(&mut self, itemid: ItemId) -> Result<(), String> {
-        let p = self.get_current_ast()?;
-        let i = p.get_item(itemid).unwrap();
+    fn resolve_item_forward_dec(&mut self, itemid: ItemId)
+             -> Result<(), String> {
+        let i = self.p.get_item(itemid).unwrap();
         match i {
             Item::FnDec(fn_dec) => {
                 // declare place holder
                 let f = fn_dec.clone();
-                let o = Object{name: f.name.clone(), ty: None};
+                let o = Object{name: f.name.clone(), ty: None, mutable: true};
                 let id = self.ctx.declare_object(o.clone());
                 // declare predec
                 self.get_scope_mut(self.current_scope).unwrap()
@@ -367,8 +368,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
     }
     fn resolve_mod_forward_decs(&mut self, modid: ModId) -> Result<(), String> {
-        let p = self.get_current_ast()?;
-        let m = p.get_module(modid).unwrap().items.clone(); // clone atp bro
+        let m = self.p.get_module(modid).unwrap().items.clone(); // clone atp bro
         for i in m {
             self.resolve_item_forward_dec(i)?;
         }
@@ -379,22 +379,19 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.resolve_mod_decs(modid)?;
         Ok(())
     }
-    fn get_current_ast(&mut self) -> Result<&mut parser::Parser,String> {
-        let p = self.current_p.as_mut()
-            .ok_or(String::from("No cuurent parser in st"))?;
-        Ok(p)
-    }
-    pub fn resolve(&mut self, p: parser::Parser) -> Result<(), String> {
-        let m = p.root.clone();
-        self.current_p = Some(p);
-        self.resolve_module(m)?;
+    pub fn resolve(ctx: &'ctx mut resolver::Context, p: parser::Parser) -> Result<(), String> {
+        let mut s = Self::new(ctx, p);
+        let m = s.p.root.clone();
+        s.resolve_module(m)?;
         let mut k = 0;
-        for s in &self.scopes {
+        for s in &s.scopes {
             let d = s.object_forward_decs.len() + s.type_forward_decs.len();
             println!(" scope {} has {} forward decs left.", k, d);
             k += 1;
         }
-        Ok(())
+        
+        // Ok(FilledAst { p: s.p, refs: s.refs })
+        panic!("handle");
     }
 }
 impl Scope {

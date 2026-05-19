@@ -43,6 +43,12 @@ impl Expr {
             _ => false,
         }
     }
+    pub fn is_mutable(&self) -> bool {
+        match self {
+            Expr::Symbol(_) => true,
+            _ => false,
+        }
+    }
 }
 #[derive(Clone,Debug)]
 pub struct Binop {
@@ -237,7 +243,6 @@ impl Parser {
     }
     fn parse_if_condition(&mut self) -> Result<ExprId, ParserErr> {
         self.parse_expr() // anny assignment expr
-        
     }
     fn parse_return_stmt(&mut self) -> Result<StmtId, ParserErr> {
         self.expect_kw(Keyword::Return)?;

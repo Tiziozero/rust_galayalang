@@ -4,12 +4,14 @@ use crate::lexer;
 use crate::symbols;
 use crate::symbols::ObjectId;
 use crate::debugln;
-use crate::symbols::Type;
 
 pub struct Context {
     objects: Vec<symbols::Object>,
     types: Vec<symbols::Type>,
     base_scope: symbols::Scope,
+}
+
+pub struct Module {
 }
 
 impl Context {
@@ -28,18 +30,21 @@ impl Context {
     pub fn get_object(&mut self, id: symbols::ObjectId) -> Option<&symbols::Object> {
         self.objects.get(id.0)
     }
-    pub fn get_type(&mut self, id: symbols::TypeId) -> Option<&symbols::Type> {
+    pub fn get_type(&mut self, id: symbols::TypeId)
+            -> Option<&symbols::Type> {
         self.types.get(id.0)
     }
     pub fn declare_object(&mut self, obj: symbols::Object) -> symbols::ObjectId {
         self.objects.push(obj);
         symbols::ObjectId(self.objects.len() -1)
     }
-    pub fn update_object(&mut self, id: ObjectId, obj: symbols::Object) -> symbols::ObjectId {
+    pub fn update_object(&mut self, id: ObjectId, obj: symbols::Object)
+            -> symbols::ObjectId {
         self.objects[id.0] = obj;
         id
     }
-    pub fn update_type(&mut self, id: symbols::TypeId, ty: symbols::Type) -> symbols::TypeId {
+    pub fn update_type(&mut self, id: symbols::TypeId, ty: symbols::Type)
+            -> symbols::TypeId {
         self.types[id.0] = ty;
         id
     }
@@ -72,7 +77,6 @@ impl Context {
         let f = read_to_string(f).unwrap();
         let l = lexer::Lexer::from_code(&f).unwrap();
         let p = parser::Parser::parse(l);
-        let mut st = symbols::SymbolResolver::new(self);
-        st.resolve(p).unwrap();
+        let mut st = symbols::SymbolResolver::resolve(self, p).unwrap();
     }
 }
