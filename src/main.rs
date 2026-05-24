@@ -4,6 +4,7 @@ mod lexer;
 mod symbols;
 mod debug;
 mod utils;
+mod type_checker;
 
 fn main() -> Result<(), parser::ParserErr> {
     let mut r = resolver::Context::new();

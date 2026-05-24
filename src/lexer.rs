@@ -38,7 +38,7 @@ impl PartialEq for Token {
         }
     }
 }
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Lexer {
     tokens: Vec<Token>,
     index: usize,

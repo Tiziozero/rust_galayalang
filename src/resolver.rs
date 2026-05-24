@@ -4,14 +4,12 @@ use crate::lexer;
 use crate::symbols;
 use crate::symbols::ObjectId;
 use crate::debugln;
+use crate::type_checker;
 
 pub struct Context {
     objects: Vec<symbols::Object>,
     types: Vec<symbols::Type>,
     base_scope: symbols::Scope,
-}
-
-pub struct Module {
 }
 
 impl Context {
@@ -77,6 +75,7 @@ impl Context {
         let f = read_to_string(f).unwrap();
         let l = lexer::Lexer::from_code(&f).unwrap();
         let p = parser::Parser::parse(l);
-        let mut st = symbols::SymbolResolver::resolve(self, p).unwrap();
+        let module = symbols::SymbolResolver::resolve(self, p).unwrap();
+        type_checker::TypeChecker::type_check(self, &module).unwrap();
     }
 }

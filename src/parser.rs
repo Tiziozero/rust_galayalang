@@ -42,7 +42,7 @@ impl Expr {
             Expr::Symbol(_) => true,
             _ => false,
         }
-    }
+   }
     pub fn is_mutable(&self) -> bool {
         match self {
             Expr::Symbol(_) => true,
@@ -140,16 +140,16 @@ impl Debug for Block {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Item {
     FnDec(FnDec),
 }
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Module {
     pub items: Vec<ItemId>
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Parser {
     stmts:  Vec<Stmt>,
     exprs:  Vec<Expr>,

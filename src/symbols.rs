@@ -1,3 +1,4 @@
+use std::ptr::fn_addr_eq;
 use std::{collections::HashMap};
 
 use crate::parser::{self, Item, ItemId, ModId, TypeSpecifier};
@@ -9,19 +10,19 @@ pub struct TypeId(pub usize);
 
 #[derive(Debug,Clone)]
 pub struct Object {
-    mutable: bool,
-    name: String,
-    ty: Option<TypeId>,
+    pub mutable: bool,
+    pub name: String,
+    pub ty: Option<TypeId>,
 }
 #[derive(Debug,Clone,PartialEq)]
 pub struct FnArg {
-    name: String,
-    ty: TypeId,
+    pub name: String,
+    pub ty: TypeId,
 }
 #[derive(Debug,Clone)]
 pub struct Function {
-    args: Vec<FnArg>,
-    ret_ty: Option<TypeId>,
+    pub args: Vec<FnArg>,
+    pub ret_ty: Option<TypeId>,
 }
 impl PartialEq for Function {
     fn eq(&self, other: &Self) -> bool {
@@ -44,6 +45,41 @@ pub enum Type {
     I32, F32,
     Function(Function),
     Pointer(TypeId),
+    FloatLiteral,
+    IntLiteral,
+}
+impl Type {
+    pub fn is_untyped(&self) -> bool {
+        match self {
+            Self::FloatLiteral | Self::IntLiteral => true,
+            _ => false,
+        }
+    }
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            Self::FloatLiteral | Self::IntLiteral |
+            Self::I32 | Self::F32 => true,
+            _ => false,
+        }
+    }
+    pub fn is_integer(&self) -> bool {
+        match self {
+            Self::IntLiteral | Self::I32 => true,
+            _ => false,
+        }
+    }
+    pub fn is_float(&self) -> bool {
+        match self {
+            Self::FloatLiteral | Self::F32 => true,
+            _ => false,
+        }
+    }
+    pub fn get_fn(&self) -> Result<&Function, String> {
+        match self {
+            Self::Function(f) => Ok(f),
+            _=>panic!("type not a function"),
+        }
+    }
 }
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ScopeId(usize);
@@ -57,20 +93,22 @@ pub struct Scope {
 }
 pub struct Module {
     // decs
-    objects: Vec<Object>,
-    types: Vec<Type>,
-    p: parser::Parser,
+    pub decs: Scope,
+    pub refs: HashMap<ExprId,ObjectId>,
+    pub items: HashMap<ItemId, ObjectId>,
+    pub p: parser::Parser,
 }
 #[derive(Eq,PartialEq,Hash,Debug,Clone,Copy)]
 pub struct ObjectId(pub usize);
 use crate::resolver;
 pub struct SymbolResolver<'ctx> {
-    ctx: &'ctx mut resolver::Context,
-    refs: HashMap<ExprId,ObjectId>,
-    scopes: Vec<Scope>,
-    global_scope: ScopeId,
-    current_scope: ScopeId,
-    p: parser::Parser,
+    pub ctx: &'ctx mut resolver::Context,
+    pub refs: HashMap<ExprId,ObjectId>,
+    pub items: HashMap<ItemId, ObjectId>,
+    pub scopes: Vec<Scope>,
+    pub global_scope: ScopeId,
+    pub current_scope: ScopeId,
+    pub p: parser::Parser,
 }
 impl<'ctx> SymbolResolver<'ctx> {
     pub fn new(ctx: &'ctx mut resolver::Context, p: parser::Parser) -> Self {
@@ -86,6 +124,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         Self {
             ctx,
             refs: HashMap::new(),
+            items: HashMap::new(),
             p: p,
             scopes: scopes,
             global_scope: sid,
@@ -233,17 +272,21 @@ impl<'ctx> SymbolResolver<'ctx> {
         Ok(())
     }
     // create fn dec
-    fn resolve_fndec(&mut self, fn_dec: parser::FnDec) -> Result<(), String> {
+    fn resolve_fndec(&mut self, id: ItemId) -> Result<(), String> {
+        let fndec = match self.p.get_item(id).unwrap() {
+            parser::Item::FnDec(fndec) => fndec.clone(),
+            // _ => panic!("other item when fndec expected"),
+        };
         // create type first, resolve that, then create object
         // resolve args:
         self.enter_scope(); // for fn recursion + args
         let argdecs = Vec::<FnArg>::new();
-        for a in fn_dec.args {
+        for a in fndec.args {
             let t = self.resolve_type(&a.ty)?;
             self.declare_object(a.name.clone(), Some(t), false)?;
         }
         // check type
-        let ret_ty = match fn_dec.ret_ty {
+        let ret_ty = match fndec.ret_ty {
             Some(t) => Some(self.resolve_type(&t)?),
             None => None,
         };
@@ -253,10 +296,10 @@ impl<'ctx> SymbolResolver<'ctx> {
         });
         let interned = self.ctx.intern_type(fn_ty.clone());
         // define self for recursion
-        self.declare_object(fn_dec.name.clone(),
+        self.declare_object(fndec.name.clone(),
                 Some(interned), false)?;
         // make sure body's alright
-        if let Some(b) = fn_dec.body {
+        if let Some(b) = fndec.body {
             self.resolve_block(&b)?;
         } else {
             panic!("Fn must have body");
@@ -264,16 +307,17 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.exit_scope();
         let interned = self.ctx.intern_type(fn_ty.clone());
         // define it in scope
-        self.declare_object(fn_dec.name.clone(),
+        let declared_id = self.declare_object(fndec.name.clone(),
                 Some(interned), false)?;
+        self.items.insert(id, declared_id);
         Ok(())
     }
     fn resolve_item(&mut self, itemid: ItemId) -> Result<(), String> {
         let i = self.p.get_item(itemid).unwrap();
         match i {
-            Item::FnDec(fn_dec) => {
-                let f = fn_dec.clone();
-                self.resolve_fndec(f)
+            Item::FnDec(_) => {
+                // need reference to itemid for symbol and ref and what not
+                self.resolve_fndec(itemid)
             },
             // _ => panic!("Impl resolve item"),
         }
@@ -379,7 +423,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.resolve_mod_decs(modid)?;
         Ok(())
     }
-    pub fn resolve(ctx: &'ctx mut resolver::Context, p: parser::Parser) -> Result<(), String> {
+    pub fn resolve(ctx: &'ctx mut resolver::Context, p: parser::Parser) -> Result<Module, String> {
         let mut s = Self::new(ctx, p);
         let m = s.p.root.clone();
         s.resolve_module(m)?;
@@ -390,8 +434,16 @@ impl<'ctx> SymbolResolver<'ctx> {
             k += 1;
         }
         
-        // Ok(FilledAst { p: s.p, refs: s.refs })
-        panic!("handle");
+        Ok(s.to_module())
+        // panic!("handle");
+    }
+    fn to_module(&mut self) -> Module {
+        Module {
+            p: self.p.to_owned(),
+            decs: self.get_scope(self.global_scope).unwrap().clone(),
+            refs: self.refs.to_owned(),
+            items: self.items.to_owned(),
+        }
     }
 }
 impl Scope {
