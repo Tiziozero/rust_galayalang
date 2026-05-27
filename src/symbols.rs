@@ -1,4 +1,3 @@
-use std::ptr::fn_addr_eq;
 use std::{collections::HashMap};
 
 use crate::parser::{self, Item, ItemId, ModId, TypeSpecifier};
@@ -91,27 +90,17 @@ pub struct Scope {
     object_forward_decs: HashMap<String, ObjectId>,
     type_forward_decs: HashMap<String, TypeId>,
 }
-pub struct Module {
-    // decs
-    pub decs: Scope,
-    pub refs: HashMap<ExprId,ObjectId>,
-    pub items: HashMap<ItemId, ObjectId>,
-    pub p: parser::Parser,
-}
 #[derive(Eq,PartialEq,Hash,Debug,Clone,Copy)]
 pub struct ObjectId(pub usize);
 use crate::resolver;
 pub struct SymbolResolver<'ctx> {
     pub ctx: &'ctx mut resolver::Context,
-    pub refs: HashMap<ExprId,ObjectId>,
-    pub items: HashMap<ItemId, ObjectId>,
     pub scopes: Vec<Scope>,
     pub global_scope: ScopeId,
     pub current_scope: ScopeId,
-    pub p: parser::Parser,
 }
 impl<'ctx> SymbolResolver<'ctx> {
-    pub fn new(ctx: &'ctx mut resolver::Context, p: parser::Parser) -> Self {
+    pub fn new(ctx: &'ctx mut resolver::Context) -> Self {
         let mut scopes = Vec::new();
         scopes.push(Scope{
             parent:None,
@@ -123,9 +112,6 @@ impl<'ctx> SymbolResolver<'ctx> {
         let sid = ScopeId(scopes.len() - 1);
         Self {
             ctx,
-            refs: HashMap::new(),
-            items: HashMap::new(),
-            p: p,
             scopes: scopes,
             global_scope: sid,
             current_scope: sid,
@@ -169,13 +155,13 @@ impl<'ctx> SymbolResolver<'ctx> {
         Ok(())
     }
     fn resolve_expr(&mut self, exprid: ExprId) -> Result<(), String> {
-        let expr = self.p.get_expr(exprid).unwrap().clone();
+        let expr = self.ctx.get_expr(exprid).unwrap().clone();
         match expr {
             parser::Expr::Number(_) => Ok(()),
             parser::Expr::Symbol(s) => {
                 let name = s.symbol.clone();
                 let id = self.scope_get_object(&name)?;
-                self.refs.insert(exprid, id);
+                self.ctx.new_expr_ref(exprid, id);
                 Ok(())
             },
             parser::Expr::Binop(binop) => {
@@ -273,7 +259,7 @@ impl<'ctx> SymbolResolver<'ctx> {
     }
     // create fn dec
     fn resolve_fndec(&mut self, id: ItemId) -> Result<(), String> {
-        let fndec = match self.p.get_item(id).unwrap() {
+        let fndec = match self.ctx.get_item(id).unwrap() {
             parser::Item::FnDec(fndec) => fndec.clone(),
             // _ => panic!("other item when fndec expected"),
         };
@@ -309,11 +295,11 @@ impl<'ctx> SymbolResolver<'ctx> {
         // define it in scope
         let declared_id = self.declare_object(fndec.name.clone(),
                 Some(interned), false)?;
-        self.items.insert(id, declared_id);
+        self.ctx.new_item_ref(id, declared_id);
         Ok(())
     }
     fn resolve_item(&mut self, itemid: ItemId) -> Result<(), String> {
-        let i = self.p.get_item(itemid).unwrap();
+        let i = self.ctx.get_item(itemid).unwrap();
         match i {
             Item::FnDec(_) => {
                 // need reference to itemid for symbol and ref and what not
@@ -323,7 +309,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
     }
     fn resolve_mod_decs(&mut self, modid: ModId) -> Result<(), String> {
-        let m = self.p.get_module(modid).unwrap().items.clone(); // clone atp bro
+        let m = self.ctx.get_module(modid).unwrap().items.clone(); // clone atp bro
         for i in m {
             self.resolve_item(i)?;
         }
@@ -366,7 +352,7 @@ impl<'ctx> SymbolResolver<'ctx> {
     fn resolve_assignment(&mut self, a: &parser::Assignment) -> Result<(), String> {
         self.resolve_expr(a.left)?;
         self.resolve_expr(a.right)?;
-        let expr = self.p.get_expr(a.left).unwrap();
+        let expr = self.ctx.get_expr(a.left).unwrap();
         if !expr.is_lvalue() {
             return Err(String::from(
                     format!("assignment target is not an lvalue")));
@@ -374,7 +360,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         Ok(())
     }
     fn resolve_stmt(&mut self, stmtid: StmtId) -> Result<(), String> {
-        let stmt = self.p.get_stmt(stmtid).unwrap();
+        let stmt = self.ctx.get_stmt(stmtid).unwrap();
         match stmt.clone() {
             parser::Stmt::Expr(exprid) => {
                 self.resolve_expr(exprid)
@@ -396,7 +382,7 @@ impl<'ctx> SymbolResolver<'ctx> {
     }
     fn resolve_item_forward_dec(&mut self, itemid: ItemId)
              -> Result<(), String> {
-        let i = self.p.get_item(itemid).unwrap();
+        let i = self.ctx.get_item(itemid).unwrap();
         match i {
             Item::FnDec(fn_dec) => {
                 // declare place holder
@@ -412,7 +398,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
     }
     fn resolve_mod_forward_decs(&mut self, modid: ModId) -> Result<(), String> {
-        let m = self.p.get_module(modid).unwrap().items.clone(); // clone atp bro
+        let m = self.ctx.get_module(modid).unwrap().items.clone(); // clone atp bro
         for i in m {
             self.resolve_item_forward_dec(i)?;
         }
@@ -423,9 +409,9 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.resolve_mod_decs(modid)?;
         Ok(())
     }
-    pub fn resolve(ctx: &'ctx mut resolver::Context, p: parser::Parser) -> Result<Module, String> {
-        let mut s = Self::new(ctx, p);
-        let m = s.p.root.clone();
+    pub fn resolve(ctx: &'ctx mut resolver::Context, id: parser::ModId) -> Result<(), String> {
+        let mut s = Self::new(ctx);
+        let m = id;
         s.resolve_module(m)?;
         let mut k = 0;
         for s in &s.scopes {
@@ -434,16 +420,8 @@ impl<'ctx> SymbolResolver<'ctx> {
             k += 1;
         }
         
-        Ok(s.to_module())
+        Ok(())
         // panic!("handle");
-    }
-    fn to_module(&mut self) -> Module {
-        Module {
-            p: self.p.to_owned(),
-            decs: self.get_scope(self.global_scope).unwrap().clone(),
-            refs: self.refs.to_owned(),
-            items: self.items.to_owned(),
-        }
     }
 }
 impl Scope {

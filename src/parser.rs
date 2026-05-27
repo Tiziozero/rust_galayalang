@@ -1,16 +1,49 @@
 use std::fmt::{Debug, Display};
+use crate::resolver;
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StmtId(usize);
+impl StmtId {
+    pub fn new(n: usize) -> Self {
+        Self(n)
+    }
+    pub fn id(&self) -> usize {
+        self.0
+    }
+}
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExprId(usize);
+impl ExprId {
+    pub fn new(n: usize) -> Self {
+        Self(n)
+    }
+    pub fn id(&self) -> usize {
+        self.0
+    }
+}
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ModId(usize);
+impl ModId {
+    pub fn new(n: usize) -> Self {
+        Self(n)
+    }
+    pub fn id(&self) -> usize {
+        self.0
+    }
+}
 
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ItemId(usize);
+impl ItemId {
+    pub fn new(n: usize) -> Self {
+        Self(n)
+    }
+    pub fn id(&self) -> usize {
+        self.0
+    }
+}
 
 use crate::lexer::{self, Keyword, Token};
 
@@ -149,32 +182,25 @@ pub struct Module {
     pub items: Vec<ItemId>
 }
 
-#[derive(Debug,Clone)]
-pub struct Parser {
-    stmts:  Vec<Stmt>,
-    exprs:  Vec<Expr>,
-    items:  Vec<Item>,
-    mods:   Vec<Module>,
+#[derive()]
+pub struct Parser<'ctx> {
+    ctx: &'ctx mut resolver::Context,
     lexer: lexer::Lexer,
     flags: usize,
     pub root: ModId,
 }
-impl Parser {
+impl<'ctx> Parser<'ctx> {
     fn new_stmt(&mut self, stmt: Stmt) -> StmtId {
-        self.stmts.push(stmt);
-        return StmtId(self.stmts.len() - 1);
+        self.ctx.new_stmt(stmt)
     }
     fn new_expr(&mut self, expr: Expr) -> ExprId {
-        self.exprs.push(expr);
-        return ExprId(self.exprs.len() - 1);
+        self.ctx.new_expr(expr)
     }
     fn new_module(&mut self, m: Module) -> ModId {
-        self.mods.push(m);
-        return ModId(self.mods.len() - 1);
+        self.ctx.new_mod(m)
     }
     fn new_item(&mut self, item: Item) -> ItemId {
-        self.items.push(item);
-        return ItemId(self.items.len() - 1);
+        self.ctx.new_item(item)
     }
     fn current(&mut self) -> lexer::Token {
         return if let Some(t) = self.lexer.current() {
@@ -453,21 +479,17 @@ impl Parser {
         self.parse_binop()
     }
     pub fn get_expr(&self, id: ExprId) -> Result<&Expr, ParserErr> {
-        self.exprs.get(id.0).ok_or(
-            ParserErr::Invalid(format!("expr {:?} doesn't exist", id)))
+        Ok(self.ctx.get_expr(id).unwrap())
     }
     pub fn get_module(&self, id: ModId) -> Result<&Module, ParserErr> {
-        self.mods.get(id.0).ok_or(
-            ParserErr::Invalid(format!("module {:?} doesn't exist", id)))
+        Ok(self.ctx.get_module(id).unwrap())
     }
     pub fn get_item(&self, id: ItemId) -> Result<&Item, ParserErr> {
-        self.items.get(id.0).ok_or(
-            ParserErr::Invalid(format!("item {:?} doesn't exist", id)))
+        Ok(self.ctx.get_item(id).unwrap())
     }
 
     pub fn get_stmt(&self, id: StmtId) -> Result<&Stmt, ParserErr> {
-        self.stmts.get(id.0).ok_or(
-            ParserErr::Invalid(format!("stmt {:?} doesn't exist", id)))
+        Ok(self.ctx.get_stmt(id).unwrap())
     }
     // horrible looking function
     fn parse_vardec(&mut self) -> Result<StmtId, ParserErr> {
@@ -590,13 +612,10 @@ impl Parser {
         }
         Ok(stmts)
     }
-    pub fn parse(lexer: lexer::Lexer) -> Self {
+    pub fn parse(ctx: &'ctx mut resolver::Context, lexer: lexer::Lexer) -> ModId {
         let mut p: Parser = Parser{
+            ctx,
             flags: 0,
-            exprs:  Vec::new(),
-            stmts:  Vec::new(),
-            items:  Vec::new(),
-            mods:   Vec::new(),
             lexer,
             root: ModId(0),
         };
@@ -613,7 +632,7 @@ impl Parser {
         };
         println!("AST: {:?}", root);
         p.root = p.new_module(Module { items: root });
-        return p;
+        return p.root;
     }
 }
 impl Display for Stmt {
