@@ -48,6 +48,14 @@ pub enum Type {
     IntLiteral,
 }
 impl Type {
+    pub fn can_binop(&self) -> bool {
+        match self {
+            Self::FloatLiteral | Self::IntLiteral |
+            Self::I32 | Self::F32 | Self::Pointer(_)
+                => true,
+            _ => false,
+        }
+    }
     pub fn is_untyped(&self) -> bool {
         match self {
             Self::FloatLiteral | Self::IntLiteral => true,

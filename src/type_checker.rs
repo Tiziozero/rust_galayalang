@@ -17,7 +17,20 @@ impl<'ctx> TypeChecker<'ctx> {
         panic!("tc complete");
     }
     fn tc_binop(&mut self, b: &parser::Binop) -> Result<symbols::TypeId, String> {
-        panic!("Impl binops");
+        let l = self.tc_expr(b.left)?;
+        let r = self.tc_expr(b.right)?;
+        let lexpr_ty = self.ctx.get_type(l).unwrap().clone();
+        if !lexpr_ty.can_binop() {
+            return Err(String::from(format!(
+            "Can not binop expr (left) {:?}.", lexpr_ty)));
+        }
+        let rexpr_ty = self.ctx.get_type(r).unwrap().clone();
+        if !rexpr_ty.can_binop() {
+            return Err(String::from(format!(
+            "Can not binop expr (right) {:?}.", lexpr_ty)));
+        }
+        let res_id = self.compare_and_reduce_types(l, r)?;
+        return Ok(res_id);
     }
     fn tc_expr(&mut self, id: parser::ExprId) -> Result<symbols::TypeId, String> {
         let expr = self.ctx.get_expr(id).unwrap().clone();
@@ -40,7 +53,13 @@ impl<'ctx> TypeChecker<'ctx> {
                     Ok(type_id)
                 }
             },
-
+            parser::Expr::Symbol(_) => {
+                let symid = self.ctx.get_expr_ref(id).unwrap();
+                let sym = self.ctx.get_object(symid).unwrap().clone();
+                let ty = sym.ty.ok_or(String::from("No type in object"))?;
+                self.ctx.new_expr_ty_ref(id, ty);
+                return Ok(ty);
+            },
             _ => panic!("Impl expr {:?}.", expr),
         }
     }
@@ -80,7 +99,12 @@ impl<'ctx> TypeChecker<'ctx> {
                     Ok(right)
                 }
             }
-            _ => panic!("Impl")
+            (false,false) => if left == right {
+                    Ok(left)
+                } else {
+                    Err("types don't match".into())
+                }
+            // _ => panic!("Impl {:?} {:?}", l, r)
         }
     }
     fn compare_and_reduce_types(&mut self, left: symbols::TypeId, right: symbols::TypeId)
