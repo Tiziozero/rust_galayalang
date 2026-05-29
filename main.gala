@@ -1,4 +1,19 @@
 fn main(a: i32): i32 {
     b : i32 = 7;
-    return 0+a+b;
+    f := b+1;
+    if b {
+        f := b-1;
+    } else if b-1 {
+    } else {
+        c : i32 = 7;
+        b = c;
+        b := b + c;
+    }
+    g := 123;
+    k := fill(g);
+    return 0+a+b + f;
+}
+
+fn fill(i: i32): i32 {
+    return 0;
 }

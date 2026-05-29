@@ -105,7 +105,34 @@ impl<'ctx> TypeChecker<'ctx> {
                 self.ctx.new_expr_ty_ref(id, ty);
                 return Ok(ty);
             },
-            _ => panic!("Impl expr {:?}.", expr),
+            parser::Expr::FnCall(fncall)=> {
+                let target_id = self.tc_expr(fncall.target)?;
+                // get function type
+                let f = self.ctx.get_type(target_id).unwrap().get_fn()?.clone();
+                debugln!("ty/call: {}/{}", f.args.len(), fncall.args.len());
+
+                if f.args.len() != fncall.args.len() {
+                    return Err(format!("fn call args don't match expected args: {}:{}",
+                            f.args.len(), fncall.args.len()));
+                }
+                for i in 0..f.args.len() {
+                    let farg = f.args[i].clone();
+                    let carg = fncall.args[i].clone();
+                    let farg_ty = farg.ty;
+                    let carg_ty = self.tc_expr(carg)?;
+                    // compare
+                    let r = self.compare_and_reduce_types(farg_ty, carg_ty)?;
+                    // propagate to call arg
+                    self.propagate_type(carg, r).unwrap();
+                }
+                if let Some(r) = f.ret_ty {
+                    self.ctx.new_expr_ty_ref(id, r);
+                    Ok(r)
+                } else {
+                    panic!("Impl");
+                }
+            },
+            // _ => panic!("Impl expr {:?}.", expr),
         }
     }
     fn compare_and_reduce_numerics_untyped(&mut self, untyped: symbols::TypeId,
@@ -186,6 +213,38 @@ impl<'ctx> TypeChecker<'ctx> {
         match &stmt {
             parser::Stmt::Return(ret) => {
                 self.tc_ret(ret)
+            },
+            parser::Stmt::Expr(id) => {
+                self.tc_expr(*id)?;
+                Ok(())
+            }
+            parser::Stmt::IfStmt(s) => {
+                let cond_id = self.tc_expr(s.cond)?;
+                let cond_ty = self.ctx.get_type(cond_id).unwrap();
+                if !cond_ty.is_cond() {
+                    panic!("Type is not able to condition.");
+                }
+                self.tc_block(&s.block)?;
+                for alt in s.alt.clone() {
+                    let cond_id = self.tc_expr(alt.cond)?;
+                    let cond_ty = self.ctx.get_type(cond_id).unwrap();
+                    if !cond_ty.is_cond() {
+                        panic!("Type is not able to condition.");
+                    }
+                    self.tc_block(&alt.block)?;
+                }
+                if let Some(b) = s.else_block.clone() {
+                    self.tc_block(&b)?;
+                }
+                Ok(())
+            },
+            parser::Stmt::Assignment(a) => {
+                let target_ty = self.tc_expr(a.left)?;
+                let e_ty = self.tc_expr(a.right)?;
+                let res_ty = self.compare_and_reduce_types(target_ty, e_ty)?;
+                self.propagate_type(a.left, res_ty).unwrap();
+                self.propagate_type(a.right, res_ty).unwrap();
+                Ok(())
             },
             parser::Stmt::VarDec(vardec) => {
                 let obj_id = self.ctx.get_vardec_ref(id).unwrap();

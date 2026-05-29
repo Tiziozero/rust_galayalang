@@ -48,6 +48,9 @@ pub enum Type {
     IntLiteral,
 }
 impl Type {
+    pub fn is_cond(&self) -> bool {
+        self.is_numeric()
+    }
     pub fn can_binop(&self) -> bool {
         match self {
             Self::FloatLiteral | Self::IntLiteral |
@@ -259,10 +262,12 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.resolve_type_specifier(ty)
     }
     fn resolve_block(&mut self, block: &parser::Block) -> Result<(), String> {
+        self.enter_scope();
         let stmts = block.stmts.clone();
         for stmt in stmts {
             self.resolve_stmt(stmt)?;
         }
+        self.exit_scope();
         Ok(())
     }
     // create fn dec
@@ -274,10 +279,11 @@ impl<'ctx> SymbolResolver<'ctx> {
         // create type first, resolve that, then create object
         // resolve args:
         self.enter_scope(); // for fn recursion + args
-        let argdecs = Vec::<FnArg>::new();
+        let mut argdecs = Vec::<FnArg>::new();
         for a in fndec.args {
             let t = self.resolve_type(&a.ty)?;
-            self.declare_object(a.name.clone(), Some(t), false)?;
+            let _ = self.declare_object(a.name.clone(), Some(t), false)?;
+            argdecs.push(FnArg { name: a.name.clone(), ty: t });
         }
         // check type
         let ret_ty = match fndec.ret_ty {
