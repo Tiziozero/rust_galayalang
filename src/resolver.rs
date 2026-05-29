@@ -11,6 +11,7 @@ pub struct Context {
     exprs:  Vec<parser::Expr>,
     items:  Vec<parser::Item>,
     mods:   Vec<parser::Module>,
+    vardec_refs: HashMap<parser::StmtId, symbols::ObjectId>, // vardecs
     expr_refs: HashMap<parser::ExprId, symbols::ObjectId>,
     item_refs: HashMap<parser::ItemId, symbols::ObjectId>,
     expr_ty_refs: HashMap<parser::ExprId, symbols::TypeId>,
@@ -29,6 +30,7 @@ impl Context {
             mods: Vec::new(),
 
             // refs
+            vardec_refs: HashMap::new(),
             expr_refs: HashMap::new(),
             item_refs: HashMap::new(),
             expr_ty_refs: HashMap::new(),
@@ -42,6 +44,12 @@ impl Context {
         tid = s.declare_type(symbols::Type::F32);
         s.base_scope.declare_type("f32".into(), tid).unwrap();
         s
+    }
+    pub fn new_vardec_ref(&mut self, stmtid: parser::StmtId, objectid: symbols::ObjectId) {
+        self.vardec_refs.insert(stmtid, objectid);
+    }
+    pub fn get_vardec_ref(&self, stmtid: parser::StmtId) -> Option<symbols::ObjectId> {
+        self.vardec_refs.get(&stmtid).copied()
     }
     pub fn new_expr_ref(&mut self, exprid: parser::ExprId, objectid: symbols::ObjectId) {
         self.expr_refs.insert(exprid, objectid);

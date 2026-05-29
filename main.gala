@@ -1,4 +1,4 @@
 fn main(a: i32): i32 {
-    a : i32 = 7;
-    return 0+a;
+    b : i32 = 7;
+    return 0+a+b;
 }

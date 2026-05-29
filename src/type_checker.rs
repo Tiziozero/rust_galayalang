@@ -8,17 +8,55 @@ pub struct TypeChecker<'ctx> {
 }
 
 impl<'ctx> TypeChecker<'ctx> {
-    pub fn type_check(ctx: &'ctx mut resolver::Context, moduleid: parser::ModId) -> Result<(), String> {
+    pub fn type_check(ctx: &'ctx mut resolver::Context, moduleid: parser::ModId)
+                                                        -> Result<(), String> {
         let mut tc = TypeChecker{ctx, current_fn_ret_type:None};
         for i in tc.ctx.get_module(moduleid).unwrap().items.clone() {
             debugln!("{:?}", i);
             tc.tc_item(i)?;
         }
-        panic!("tc complete");
+        Ok(())
     }
-    fn tc_binop(&mut self, b: &parser::Binop) -> Result<symbols::TypeId, String> {
+    fn propagate_type(&mut self, expr: parser::ExprId, ty: symbols::TypeId)
+                                                        -> Result<(), String> {
+        let t = self.ctx.get_type(ty).unwrap().clone();
+        let e = self.ctx.get_expr(expr).unwrap().clone();
+        debugln!("Propagating: {:?} to {:?}", t, e);
+        match e {
+            parser::Expr::Number(_) => {
+                // overwrite the literal's type with the concrete one
+                self.ctx.new_expr_ty_ref(expr, ty);
+                Ok(())
+            },
+            parser::Expr::Symbol(_) => {
+                // symbols have a declared type, don't overwrite
+                Ok(())
+            },
+            parser::Expr::Binop(b) => {
+                let current = self.ctx.get_expr_ty_ref(expr).unwrap();
+                let current_ty = self.ctx.get_type(current).unwrap().clone();
+                if current_ty.is_untyped() {
+                    self.ctx.new_expr_ty_ref(expr, ty);
+                }
+                self.propagate_type(b.left, ty)?;
+                self.propagate_type(b.right, ty)?;
+                Ok(())
+            },
+            parser::Expr::FnCall(_) => {
+                // fn call has its own return type, don't touch it
+                Ok(())
+            },
+        }
+    }
+    fn tc_binop(&mut self, id: parser::ExprId) -> Result<symbols::TypeId, String> {
+        let b = match self.ctx.get_expr(id).unwrap() {
+            parser::Expr::Binop(b) => b.clone(),
+            _ => panic!("Expected binop"),
+        };
+        // check left and right
         let l = self.tc_expr(b.left)?;
         let r = self.tc_expr(b.right)?;
+        // make sure they can binop
         let lexpr_ty = self.ctx.get_type(l).unwrap().clone();
         if !lexpr_ty.can_binop() {
             return Err(String::from(format!(
@@ -29,14 +67,21 @@ impl<'ctx> TypeChecker<'ctx> {
             return Err(String::from(format!(
             "Can not binop expr (right) {:?}.", lexpr_ty)));
         }
+        // compare resulting ids
         let res_id = self.compare_and_reduce_types(l, r)?;
+        // add type ref
+        self.ctx.new_expr_ty_ref(id, res_id);
+        // propagate to children
+        self.propagate_type(b.left, res_id).unwrap();
+        self.propagate_type(b.right, res_id).unwrap();
+
         return Ok(res_id);
     }
     fn tc_expr(&mut self, id: parser::ExprId) -> Result<symbols::TypeId, String> {
         let expr = self.ctx.get_expr(id).unwrap().clone();
         match expr {
-            parser::Expr::Binop(b) => {
-                let type_id = self.tc_binop(&b)?;
+            parser::Expr::Binop(_) => {
+                let type_id = self.tc_binop(id)?;
                 self.ctx.new_expr_ty_ref(id, type_id);
                 Ok(type_id)
             }
@@ -104,7 +149,6 @@ impl<'ctx> TypeChecker<'ctx> {
                 } else {
                     Err("types don't match".into())
                 }
-            // _ => panic!("Impl {:?} {:?}", l, r)
         }
     }
     fn compare_and_reduce_types(&mut self, left: symbols::TypeId, right: symbols::TypeId)
@@ -127,7 +171,10 @@ impl<'ctx> TypeChecker<'ctx> {
         }
         let ret_ty = self.current_fn_ret_type.unwrap();
         match self.compare_and_reduce_types(ty, ret_ty) {
-            Ok(_) => Ok(()),
+            Ok(r) => {
+                self.propagate_type(*ret, r).unwrap();
+                Ok(())
+            } ,
             Err(s) =>
                 Err(String::from(format!(
                     "return expr type ({:?}) isn't the same as expected return type ({:?}) ({}).",
@@ -140,6 +187,25 @@ impl<'ctx> TypeChecker<'ctx> {
             parser::Stmt::Return(ret) => {
                 self.tc_ret(ret)
             },
+            parser::Stmt::VarDec(vardec) => {
+                let obj_id = self.ctx.get_vardec_ref(id).unwrap();
+                let obj = self.ctx.get_object(obj_id).unwrap().clone();
+                if let Some(expr) = vardec.val {
+                    let expr_ty = self.tc_expr(expr)?;
+                    match obj.ty {
+                        Some(ty) => {
+                            let rt = self.compare_and_reduce_types(ty, expr_ty)?;
+                            self.propagate_type(expr, rt)?;
+                        },
+                        None => {
+                            let mut new_obj = obj.clone();
+                            new_obj.ty = Some(expr_ty);
+                            self.ctx.update_object(obj_id, new_obj);
+                        },
+                    }
+                }
+                Ok(())
+            }
             _ => panic!("Impl stmt {:?}", stmt),
         }
     }

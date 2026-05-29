@@ -508,6 +508,7 @@ impl<'ctx> Parser<'ctx> {
                         Ok(self.new_stmt(e))
                     },
                     ":" => { // "a : type..."
+                        self.next(); // ":"
                         let t = self.parse_type()?;
                         // "a: type = ..." or "a: type"
                         match self.current() {
@@ -524,11 +525,11 @@ impl<'ctx> Parser<'ctx> {
                                     Ok(self.new_stmt(e))
                                 }
                             // "a: type"
-                            _ => Ok(self.new_stmt(Stmt::VarDec(VarDec{
+                            _ => /*Ok(self.new_stmt(Stmt::VarDec(VarDec{
                                 s: ident,
                                 ty: Some(t),
                                 val: None,
-                            }))),
+                            })))*/ panic!("Must have assignment, can't have just dec (\"a : type;\" is illegal)"),
                         }
                     },
                     _ => panic!("Handle"),

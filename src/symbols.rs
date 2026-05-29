@@ -289,7 +289,8 @@ impl<'ctx> SymbolResolver<'ctx> {
             ret_ty,
         });
         let interned = self.ctx.intern_type(fn_ty.clone());
-        // define self for recursion
+        // define self for recursion- lives in arg scope, so not acceccible
+        // anywhere else
         self.declare_object(fndec.name.clone(),
                 Some(interned), false)?;
         // make sure body's alright
@@ -300,7 +301,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
         self.exit_scope();
         let interned = self.ctx.intern_type(fn_ty.clone());
-        // define it in scope
+        // define it in scope/global scope
         let declared_id = self.declare_object(fndec.name.clone(),
                 Some(interned), false)?;
         self.ctx.new_item_ref(id, declared_id);
@@ -323,7 +324,8 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
         Ok(())
     }
-    fn resolve_vardec(&mut self, vardec: &parser::VarDec)  -> Result<(), String> {
+    // returns object id
+    fn resolve_vardec(&mut self, vardec: &parser::VarDec)  -> Result<ObjectId, String> {
         let t = if let Some(ty) = vardec.ty.clone() {
             let clone = ty.clone();
             let r = self.resolve_type(&clone)?; 
@@ -333,11 +335,10 @@ impl<'ctx> SymbolResolver<'ctx> {
         };
         let name = vardec.s.clone();
         if let Some(v) = vardec.val {
-            debugln!("verdec has expression");
             self.resolve_expr(v)?;
         }
-        self.declare_object(name, t, true)?; // create object, mutable
-        Ok(())
+        let objid = self.declare_object(name, t, true)?; // create object, mutable
+        Ok(objid)
     }
     fn resolve_if_stmt(&mut self, if_stmt: &parser::IfStmt)
         -> Result<(), String> {
@@ -374,7 +375,9 @@ impl<'ctx> SymbolResolver<'ctx> {
                 self.resolve_expr(exprid)
             },
             parser::Stmt::VarDec(vardec) => {
-                self.resolve_vardec(&vardec)
+                let object_id = self.resolve_vardec(&vardec)?;
+                self.ctx.new_vardec_ref(stmtid, object_id);
+                Ok(())
             },
             parser::Stmt::IfStmt(if_stmt) => {
                 self.resolve_if_stmt(&if_stmt)
