@@ -16,7 +16,7 @@ fn span(s:usize,e:usize,l:usize,c:usize)->Span {
 }
 #[derive(Debug,Clone, PartialEq)]
 pub enum Keyword {
-    Fn, If, Else, Return,
+    Fn, If, Else, Return, Struct,
 }
 #[derive(Clone)]
 pub enum Token {
@@ -120,8 +120,14 @@ impl Lexer {
             "else" =>
                 self.tokens.push(Token::Keyword(Keyword::Else,
                     span(start, self.c_index, line,column))),
+            "otherwise" =>
+                self.tokens.push(Token::Keyword(Keyword::Else,
+                    span(start, self.c_index, line,column))),
             "return" => 
                 self.tokens.push(Token::Keyword(Keyword::Return,
+                    span(start, self.c_index, line,column))),
+            "struct" => 
+                self.tokens.push(Token::Keyword(Keyword::Struct,
                     span(start, self.c_index, line,column))),
             _ => 
                 self.tokens.push(Token::Ident(name,

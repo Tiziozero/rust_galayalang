@@ -316,6 +316,9 @@ impl<'ctx> Parser<'ctx> {
             _ => self.parse_expr_stmt()
         }
     }
+    fn parse_struct_dec(&mut self) -> Result<ItemId,ParserErr> {
+        panic!("Impl");
+    }
     fn parse_fn_dec(&mut self) -> Result<ItemId,ParserErr> {
         // make sure it's kw fn
         if !matches!(self.current(), Token::Keyword(lexer::Keyword::Fn, _)) {
@@ -602,6 +605,8 @@ impl<'ctx> Parser<'ctx> {
                         lexer::Keyword::Fn => 
                             stmts.push(self.parse_fn_dec().unwrap()),
                             // _ => panic!("unhandled/unknown kw {:?}", kw),
+                        lexer::Keyword::Struct =>
+                            stmts.push(self.parse_struct_dec().unwrap()),
                         _ => return Err(ParserErr::Invalid(
                                 String::from(format!("invalid kw")))),
                     }
