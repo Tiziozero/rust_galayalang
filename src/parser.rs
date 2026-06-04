@@ -137,8 +137,18 @@ pub enum Expr {
     Symbol(Symbol),
     Number(Number),
     FnCall(FnCall),
+    StructLit(StructLit),
 }
-
+#[derive(Clone, Debug)]
+pub struct StructLit {
+    pub ty: String,
+    pub fields: Vec<StructLitField>,
+}
+#[derive(Clone, Debug)]
+pub struct StructLitField {
+    pub name: String,
+    pub expr: ExprId,
+}
 #[derive(Clone, Debug)]
 pub struct FnDecArg {
     pub name: String,
@@ -198,6 +208,7 @@ pub struct Parser<'ctx> {
     ctx: &'ctx mut resolver::Context,
     lexer: lexer::Lexer,
     flags: usize,
+    parse_struct_lit: bool,
     pub root: ModId,
 }
 impl<'ctx> Parser<'ctx> {
@@ -279,7 +290,11 @@ impl<'ctx> Parser<'ctx> {
         }
     }
     fn parse_if_condition(&mut self) -> Result<ExprId, ParserErr> {
-        self.parse_expr() // anny assignment expr
+        let prev = self.parse_struct_lit;
+        self.parse_struct_lit = false;
+        let expr = self.parse_expr(); // anny assignment expr
+        self.parse_struct_lit = prev;
+        expr
     }
     fn parse_return_stmt(&mut self) -> Result<StmtId, ParserErr> {
         self.expect_kw(Keyword::Return)?;
@@ -408,8 +423,29 @@ impl<'ctx> Parser<'ctx> {
         match t {
             lexer::Token::Ident(s,_span) => {
                 self.next();
+
+                // struct lit
+                if self.current().is_symbol("{") && self.parse_struct_lit {
+                    self.next();
+                    let mut fields = Vec::<StructLitField>::new();
+                    'arg_loop: while self.current().is_ident() {
+                        let name = self.expect_ident()?;
+                        self.expect("=")?;
+                        let expr = self.parse_expr()?;
+                        fields.push(StructLitField { name, expr });
+                        if !self.current().is_symbol(",") {
+                            break 'arg_loop;
+                        } else {
+                            self.next(); // consume ","
+                        }
+                    }
+                    self.expect("}")?;
+                    Ok(self.new_expr(Expr::StructLit(StructLit{
+                        ty: s.clone(), fields })))
+                } else {
                 let e = Expr::Symbol(Symbol { symbol: s });
-                Ok(self.new_expr(e))
+                    Ok(self.new_expr(e))
+                }
             },
             lexer::Token::Num(n,_span) => {
                 self.next();
@@ -430,8 +466,8 @@ impl<'ctx> Parser<'ctx> {
             }
             t => return Err(ParserErr::Invalid(
                     String::from(format!("Invalid primary token  {}", t)))),
-
         }
+
     }
     fn parse_postfix(&mut self) -> Result<ExprId, ParserErr> {
         let mut primary = self.parse_primary()?;
@@ -566,6 +602,15 @@ impl<'ctx> Parser<'ctx> {
             _=>panic!("expected vardec symbol"),
         }
     }
+    fn parse_type_atomic(&mut self) -> Result<TypeSpecifier, ParserErr> {
+        match self.current() {
+            lexer::Token::Ident(s,_) => {
+                self.next(); // consume
+                return Ok(TypeSpecifier::Base(s.clone()))
+            }
+            _ => panic!("Invalid type atomic")
+        }
+    }
     fn parse_type_specifier(&mut self) -> Result<TypeSpecifier, ParserErr> {
         match self.current() {
             lexer::Token::Symbol(s,_span) => {
@@ -577,9 +622,8 @@ impl<'ctx> Parser<'ctx> {
                     _ => panic!("invalid symbol in type"),
                 }
             }
-            lexer::Token::Ident(i,_span) => {
-                self.next();
-                return Ok(TypeSpecifier::Base(i));
+            lexer::Token::Ident(_,_span) => {
+                self.parse_type_atomic()
             },
             _ => panic!("Handle"),
         }
@@ -647,6 +691,7 @@ impl<'ctx> Parser<'ctx> {
         let mut p: Parser = Parser{
             ctx,
             flags: 0,
+            parse_struct_lit: true,
             lexer,
             root: ModId(0),
         };

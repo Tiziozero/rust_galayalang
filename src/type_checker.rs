@@ -46,6 +46,7 @@ impl<'ctx> TypeChecker<'ctx> {
                 // fn call has its own return type, don't touch it
                 Ok(())
             },
+            parser::Expr::StructLit(_) => Ok(()), // ok
         }
     }
     fn tc_binop(&mut self, id: parser::ExprId) -> Result<symbols::TypeId, String> {
@@ -77,9 +78,41 @@ impl<'ctx> TypeChecker<'ctx> {
 
         return Ok(res_id);
     }
+    fn tc_struct_lit(&mut self, id: parser::ExprId) -> Result<symbols::TypeId, String> {
+        let s = match self.ctx.get_expr(id).unwrap().clone() {
+            parser::Expr::StructLit(s) => s,
+            _ => panic!("not a struct lit"),
+        };
+        let tyid = self.ctx.get_struct_lit_ref(id).unwrap();
+        let ty = match self.ctx.get_type(tyid).unwrap().clone() {
+            symbols::Type::Struct(s) => s,
+            _ => panic!("Not a struct"),
+        };
+        if s.fields.len() != ty.fields.len() {
+            return Err(format!(
+                    "Struct '{}' field count mismatch: expected {}, got {}.",
+                    ty.name, ty.fields.len(), s.fields.len()
+            ));
+        }
+        for f in &s.fields {
+            let expected = ty.fields.iter()
+                .find(|sf| sf.name == f.name)
+                .ok_or_else(|| format!("Struct '{}' has no field '{}'.", ty.name, f.name))?;
+            let expr_ty = self.tc_expr(f.expr)?;
+            let res = self.compare_and_reduce_types(expr_ty, expected.ty)?;
+            self.propagate_type(f.expr, res)?;
+        }
+        self.ctx.new_expr_ty_ref(id, tyid);
+        Ok(tyid)
+    }
     fn tc_expr(&mut self, id: parser::ExprId) -> Result<symbols::TypeId, String> {
         let expr = self.ctx.get_expr(id).unwrap().clone();
         match expr {
+            parser::Expr::StructLit(_) => {
+                let type_id = self.tc_struct_lit(id)?;
+                self.ctx.new_expr_ty_ref(id, type_id);
+                Ok(type_id)
+            }
             parser::Expr::Binop(_) => {
                 let type_id = self.tc_binop(id)?;
                 self.ctx.new_expr_ty_ref(id, type_id);
@@ -187,8 +220,20 @@ impl<'ctx> TypeChecker<'ctx> {
         let r = self.ctx.get_type(right).unwrap().clone();
         if l.is_numeric() && r.is_numeric() {
             return self.compare_and_reduce_numerics(left, right);
+        } else if l.is_struct() && r.is_struct() {
+            self.compare_struct_types(left, right)
+        } else {
+            Err(format!("types {:?} and {:?} aren't coherent.", l, r))
         }
-        panic!("Impl rest")
+    }
+    fn compare_struct_types(&mut self, left: symbols::TypeId,
+        right: symbols::TypeId) -> Result<symbols::TypeId,String>
+    {
+        if left == right {
+            Ok(left)
+        } else {
+            Err(format!("Types don't match {:?} {:?}", left, right))
+        }
     }
     fn tc_ret(&mut self, ret: &parser::ExprId) -> Result<(),String> {
         let ty = self.tc_expr(ret.clone())?;
@@ -282,7 +327,7 @@ impl<'ctx> TypeChecker<'ctx> {
         let prev_fn_ctx = self.current_fn_ret_type.to_owned();
 
         // get fn type ret ty
-        let sym_id = self.ctx.get_item_ref(id).unwrap().clone();
+        let sym_id = self.ctx.get_item_fn_ref(id).unwrap().clone();
         let fn_sym = self.ctx.get_object(sym_id).unwrap().clone();
         let fn_ty = self.ctx.get_type(fn_sym.ty.unwrap()).unwrap().clone();
         // set it to ret ty
@@ -300,6 +345,7 @@ impl<'ctx> TypeChecker<'ctx> {
         let item = self.ctx.get_item(id).unwrap();
         match item {
             parser::Item::FnDec(_) => self.tc_fndec(id),
+            parser::Item::StructDec(_) => Ok(()), // nothing to do
             _ => panic!("Handle item {:?}.", item),
         }
     }

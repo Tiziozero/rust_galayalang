@@ -59,6 +59,12 @@ pub enum Type {
     IntLiteral,
 }
 impl Type {
+    pub fn is_struct(&self) -> bool {
+        match self {
+            Self::Struct(_) => true,
+            _ => false
+        }
+    }
     pub fn is_cond(&self) -> bool {
         self.is_numeric()
     }
@@ -176,6 +182,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
         Ok(())
     }
+
     fn resolve_expr(&mut self, exprid: ExprId) -> Result<(), String> {
         let expr = self.ctx.get_expr(exprid).unwrap().clone();
         match expr {
@@ -194,6 +201,9 @@ impl<'ctx> SymbolResolver<'ctx> {
             parser::Expr::FnCall(fn_call) => {
                 self.resolve_fn_call(&fn_call)
             },
+            parser::Expr::StructLit(_) => {
+                self.resolve_struct_lit(exprid)
+            }
             // e => panic!("Impl expr check for {:?}", e),
         }
         // Ok(())
@@ -338,28 +348,55 @@ impl<'ctx> SymbolResolver<'ctx> {
         // define it in scope/global scope
         let declared_id = self.declare_object(fndec.name.clone(),
                 Some(interned), false)?;
-        self.ctx.new_item_ref(id, declared_id);
+        self.ctx.new_item_fn_ref(id, declared_id);
         Ok(())
     }
     // create fn dec
     fn resolve_structdec_item(&mut self, id: ItemId) -> Result<(), String> {
-        let structdec = match self.ctx.get_item(id).unwrap() {
-            parser::Item::StructDec(s) => s.clone(),
-            _ => panic!("other item when fndec expected"),
-        };
-        let mut fields = Vec::<StructField>::new();
-
-        for a in &structdec.fields {
-            let ty = self.resolve_type(&a.ty)?;
-            fields.push(StructField { name: a.name.clone(), ty });
+    let structdec = match self.ctx.get_item(id).unwrap() {
+        parser::Item::StructDec(s) => s.clone(),
+        _ => panic!("other item when fndec expected"),
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut fields = Vec::<StructField>::new();
+    for a in &structdec.fields {
+        if !seen.insert(a.name.clone()) {
+            return Err(format!(
+                "Struct '{}' has duplicate field '{}'.",
+                structdec.name, a.name
+            ));
         }
-        let ty = Type::Struct(Struct {
-            name: structdec.name.clone(),
-            fields
-        });
-        self.declare_type(structdec.name.clone(), ty).unwrap();
-        Ok(())
+        let ty = self.resolve_type(&a.ty)?;
+        fields.push(StructField { name: a.name.clone(), ty });
     }
+    let ty = Type::Struct(Struct { name: structdec.name.clone(), fields });
+    self.declare_type(structdec.name.clone(), ty).unwrap();
+    Ok(())
+}
+
+fn resolve_struct_lit(&mut self, id: parser::ExprId) -> Result<(), String> {
+    let s = match self.ctx.get_expr(id).unwrap().clone() {
+        parser::Expr::StructLit(s) => s,
+        _ => panic!("Not a struct lit"),
+    };
+    let mut seen = std::collections::HashSet::new();
+    for a in &s.fields {
+        if !seen.insert(a.name.clone()) {
+            return Err(format!(
+                "Duplicate field '{}' in struct literal '{}'.",
+                a.name, s.ty
+            ));
+        }
+        self.resolve_expr(a.expr)?;
+    }
+    match self.scope_get_type(&s.ty) {
+        Ok(ty) => {
+            self.ctx.new_struct_lit_ref(id, ty);
+            Ok(())
+        },
+        Err(e) => Err(format!("Type {} doesn't exist ({}).", s.ty, e)),
+    }
+}
     fn resolve_item(&mut self, itemid: ItemId) -> Result<(), String> {
         let i = self.ctx.get_item(itemid).unwrap();
         match i {
@@ -417,10 +454,16 @@ impl<'ctx> SymbolResolver<'ctx> {
     fn resolve_assignment(&mut self, a: &parser::Assignment) -> Result<(), String> {
         self.resolve_expr(a.left)?;
         self.resolve_expr(a.right)?;
-        let expr = self.ctx.get_expr(a.left).unwrap();
+        let expr = self.ctx.get_expr(a.left).unwrap().clone();
         if !expr.is_lvalue() {
             return Err(String::from(
                     format!("assignment target is not an lvalue")));
+        }
+        let lvalue_obj_id = self.ctx.get_expr_ref(a.left).unwrap();
+        let lvalue_obj = self.ctx.get_object(lvalue_obj_id).unwrap();
+        if !lvalue_obj.mutable {
+            return Err(String::from(
+                    format!("assignmetn rhs is immutable: {:?}.",expr)));
         }
         Ok(())
     }

@@ -13,7 +13,10 @@ pub struct Context {
     mods:   Vec<parser::Module>,
     vardec_refs: HashMap<parser::StmtId, symbols::ObjectId>, // vardecs
     expr_refs: HashMap<parser::ExprId, symbols::ObjectId>,
-    item_refs: HashMap<parser::ItemId, symbols::ObjectId>,
+    item_fn_refs: HashMap<parser::ItemId, symbols::ObjectId>, // for functions and vars
+    item_ty_refs: HashMap<parser::ItemId, symbols::TypeId>, // for structs, alias
+    // struct lit expr to it's resolved supposed type
+    struct_lit_refs: HashMap<parser::ExprId, symbols::TypeId>,
     expr_ty_refs: HashMap<parser::ExprId, symbols::TypeId>,
 
     objects: Vec<symbols::Object>,
@@ -32,8 +35,10 @@ impl Context {
             // refs
             vardec_refs: HashMap::new(),
             expr_refs: HashMap::new(),
-            item_refs: HashMap::new(),
+            item_fn_refs: HashMap::new(),
+            item_ty_refs: HashMap::new(),
             expr_ty_refs: HashMap::new(),
+            struct_lit_refs: HashMap::new(),
 
             objects: Vec::new(),
             types: Vec::new(),
@@ -54,14 +59,26 @@ impl Context {
     pub fn new_expr_ref(&mut self, exprid: parser::ExprId, objectid: symbols::ObjectId) {
         self.expr_refs.insert(exprid, objectid);
     }
-    pub fn new_item_ref(&mut self, itemid: parser::ItemId, objectid: symbols::ObjectId) {
-        self.item_refs.insert(itemid, objectid);
+    pub fn new_item_fn_ref(&mut self, itemid: parser::ItemId, objectid: symbols::ObjectId) {
+        self.item_fn_refs.insert(itemid, objectid);
+    }
+    pub fn new_item_ty_ref(&mut self, itemid: parser::ItemId, tyid: symbols::TypeId) {
+        self.item_ty_refs.insert(itemid, tyid);
+    }
+    pub fn new_struct_lit_ref(&mut self, expr: parser::ExprId, ty: symbols::TypeId) {
+        self.struct_lit_refs.insert(expr, ty);
     }
     pub fn get_expr_ref(&self, exprid: parser::ExprId) -> Option<symbols::ObjectId> {
         Some(self.expr_refs.get(&exprid).unwrap().clone())
     }
-    pub fn get_item_ref(&self, itemid: parser::ItemId) -> Option<symbols::ObjectId> {
-        Some(self.item_refs.get(&itemid).unwrap().clone())
+    pub fn get_item_fn_ref(&self, itemid: parser::ItemId) -> Option<symbols::ObjectId> {
+        Some(self.item_fn_refs.get(&itemid).unwrap().clone())
+    }
+    pub fn get_item_ty_ref(&self, itemid: parser::ItemId) -> Option<symbols::TypeId> {
+        Some(self.item_ty_refs.get(&itemid).unwrap().clone())
+    }
+    pub fn get_struct_lit_ref(&mut self, expr: parser::ExprId) -> Option<symbols::TypeId> {
+        Some(self.struct_lit_refs.get(&expr).unwrap().clone())
     }
     pub fn new_expr_ty_ref(&mut self, exprid: parser::ExprId, typeid: symbols::TypeId) {
         self.expr_ty_refs.insert(exprid, typeid);
