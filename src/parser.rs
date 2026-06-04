@@ -69,6 +69,11 @@ pub struct Assignment {
     pub kind: AssignmentKind,
 }
 
+#[derive(Clone,Debug)]
+pub struct StructField{
+    pub name: String,
+    pub ty: TypeSpecifier,
+}
 impl Expr {
     pub fn is_lvalue(&self) -> bool {
         match self {
@@ -176,6 +181,12 @@ impl Debug for Block {
 #[derive(Debug,Clone)]
 pub enum Item {
     FnDec(FnDec),
+    StructDec(StructDec),
+}
+#[derive(Debug,Clone)]
+pub struct StructDec {
+    pub name: String,
+    pub fields: Vec<StructField>,
 }
 #[derive(Debug,Clone)]
 pub struct Module {
@@ -228,7 +239,7 @@ impl<'ctx> Parser<'ctx> {
         loop {
             let ident = self.expect_ident()?;
             self.expect(":")?;
-            let ty = self.parse_type()?;
+            let ty = self.parse_type_specifier()?;
             args.push(FnDecArg { name: ident, ty });
             if !self.current().is_symbol(",") {
                 break;
@@ -317,7 +328,21 @@ impl<'ctx> Parser<'ctx> {
         }
     }
     fn parse_struct_dec(&mut self) -> Result<ItemId,ParserErr> {
-        panic!("Impl");
+        self.expect_kw(lexer::Keyword::Struct)?;
+        let name = self.expect_ident()?;
+        self.expect("{")?;
+        let mut fields = Vec::<StructField>::new();
+        while !self.current().is_symbol("}") {
+            let field_name = self.expect_ident()?;
+            self.expect(":")?;
+            let ty = self.parse_type_specifier()?;
+            fields.push(StructField{name:field_name, ty });
+            if self.current().is_symbol(",") {
+                self.next();
+            }
+        }
+        self.expect("}")?;
+        Ok(self.new_item(Item::StructDec(StructDec { name, fields })))
     }
     fn parse_fn_dec(&mut self) -> Result<ItemId,ParserErr> {
         // make sure it's kw fn
@@ -335,7 +360,7 @@ impl<'ctx> Parser<'ctx> {
         let ret_ty: Option<TypeSpecifier> = match self.current() {
             Token::Symbol(s,_) if s == ":" => {
                 self.next();
-                Some(self.parse_type()?)
+                Some(self.parse_type_specifier()?)
             },
             _=> None
         };
@@ -512,7 +537,7 @@ impl<'ctx> Parser<'ctx> {
                     },
                     ":" => { // "a : type..."
                         self.next(); // ":"
-                        let t = self.parse_type()?;
+                        let t = self.parse_type_specifier()?;
                         // "a: type = ..." or "a: type"
                         match self.current() {
                             // "a: type = ..."
@@ -541,13 +566,13 @@ impl<'ctx> Parser<'ctx> {
             _=>panic!("expected vardec symbol"),
         }
     }
-    fn parse_type(&mut self) -> Result<TypeSpecifier, ParserErr> {
+    fn parse_type_specifier(&mut self) -> Result<TypeSpecifier, ParserErr> {
         match self.current() {
             lexer::Token::Symbol(s,_span) => {
                 match s.as_str() {
                     "*" => {
                         self.next();
-                        return Ok(TypeSpecifier::Pointer(Box::new(self.parse_type()?)));
+                        return Ok(TypeSpecifier::Pointer(Box::new(self.parse_type_specifier()?)));
                     },
                     _ => panic!("invalid symbol in type"),
                 }

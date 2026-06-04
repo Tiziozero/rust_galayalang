@@ -265,7 +265,7 @@ impl<'ctx> TypeChecker<'ctx> {
                 }
                 Ok(())
             }
-            _ => panic!("Impl stmt {:?}", stmt),
+            // _ => panic!("Impl stmt {:?}", stmt),
         }
     }
     fn tc_block(&mut self, block: &parser::Block) -> Result<(), String> {
@@ -277,7 +277,7 @@ impl<'ctx> TypeChecker<'ctx> {
     fn tc_fndec(&mut self, id: parser::ItemId) -> Result<(), String> {
         let fndec = match self.ctx.get_item(id).unwrap() {
             parser::Item::FnDec(fndec) => fndec.clone(),
-            // _ => panic!("other item when fndec expected"),
+            _ => panic!("other item when fndec expected"),
         };
         let prev_fn_ctx = self.current_fn_ret_type.to_owned();
 
@@ -300,7 +300,7 @@ impl<'ctx> TypeChecker<'ctx> {
         let item = self.ctx.get_item(id).unwrap();
         match item {
             parser::Item::FnDec(_) => self.tc_fndec(id),
-            // _ => panic!("Handle item {:?}.", item),
+            _ => panic!("Handle item {:?}.", item),
         }
     }
 }

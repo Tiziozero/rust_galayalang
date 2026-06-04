@@ -23,6 +23,16 @@ pub struct Function {
     pub args: Vec<FnArg>,
     pub ret_ty: Option<TypeId>,
 }
+#[derive(Debug,Clone,PartialEq)]
+pub struct StructField {
+    pub name: String,
+    pub ty: TypeId,
+}
+#[derive(Debug,Clone,PartialEq)]
+pub struct Struct {
+    pub name: String,
+    pub fields: Vec<StructField>,
+}
 impl PartialEq for Function {
     fn eq(&self, other: &Self) -> bool {
         if self.args.len() != other.args.len() {
@@ -43,6 +53,7 @@ impl PartialEq for Function {
 pub enum Type {
     I32, F32,
     Function(Function),
+    Struct(Struct),
     Pointer(TypeId),
     FloatLiteral,
     IntLiteral,
@@ -187,6 +198,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         }
         // Ok(())
     }
+    /// declares object and adds it to scope
     fn declare_object(&mut self, name: String, ty: Option<TypeId>, mutable: bool) ->
         Result<ObjectId, String> {
         let o = Object { name: name.clone(), ty, mutable};
@@ -202,6 +214,23 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.get_scope_mut(self.current_scope).unwrap()
             .declare_object(name.clone(), id)?;
         debugln!("Adding object {} to scope {:?}", name, self.current_scope);
+        Ok(id)
+    }
+    /// declares type and adds it to scope
+    fn declare_type(&mut self, name: String, ty: Type) ->
+        Result<TypeId, String> {
+        // if it's a predec
+        if let Some(id) = self.get_scope(self.current_scope).unwrap()
+            .is_type_foreward_dec(&name) {
+            self.ctx.update_type(id, ty);
+            self.get_scope_mut(self.current_scope).unwrap()
+                .declare_type(name.clone(), id)?;
+            return Ok(id);
+        }
+        let id = self.ctx.declare_type(ty);
+        self.get_scope_mut(self.current_scope).unwrap()
+            .declare_type(name.clone(), id)?;
+        debugln!("Adding type {} to scope {:?}", name, self.current_scope);
         Ok(id)
     }
     fn scope_get_object(&mut self, name: &String) -> Result<ObjectId,String> {
@@ -271,10 +300,10 @@ impl<'ctx> SymbolResolver<'ctx> {
         Ok(())
     }
     // create fn dec
-    fn resolve_fndec(&mut self, id: ItemId) -> Result<(), String> {
+    fn resolve_fndec_item(&mut self, id: ItemId) -> Result<(), String> {
         let fndec = match self.ctx.get_item(id).unwrap() {
             parser::Item::FnDec(fndec) => fndec.clone(),
-            // _ => panic!("other item when fndec expected"),
+            _ => panic!("other item when fndec expected"),
         };
         // create type first, resolve that, then create object
         // resolve args:
@@ -297,8 +326,7 @@ impl<'ctx> SymbolResolver<'ctx> {
         let interned = self.ctx.intern_type(fn_ty.clone());
         // define self for recursion- lives in arg scope, so not acceccible
         // anywhere else
-        self.declare_object(fndec.name.clone(),
-                Some(interned), false)?;
+        self.declare_object(fndec.name.clone(), Some(interned), false)?;
         // make sure body's alright
         if let Some(b) = fndec.body {
             self.resolve_block(&b)?;
@@ -313,12 +341,34 @@ impl<'ctx> SymbolResolver<'ctx> {
         self.ctx.new_item_ref(id, declared_id);
         Ok(())
     }
+    // create fn dec
+    fn resolve_structdec_item(&mut self, id: ItemId) -> Result<(), String> {
+        let structdec = match self.ctx.get_item(id).unwrap() {
+            parser::Item::StructDec(s) => s.clone(),
+            _ => panic!("other item when fndec expected"),
+        };
+        let mut fields = Vec::<StructField>::new();
+
+        for a in &structdec.fields {
+            let ty = self.resolve_type(&a.ty)?;
+            fields.push(StructField { name: a.name.clone(), ty });
+        }
+        let ty = Type::Struct(Struct {
+            name: structdec.name.clone(),
+            fields
+        });
+        self.declare_type(structdec.name.clone(), ty).unwrap();
+        Ok(())
+    }
     fn resolve_item(&mut self, itemid: ItemId) -> Result<(), String> {
         let i = self.ctx.get_item(itemid).unwrap();
         match i {
             Item::FnDec(_) => {
                 // need reference to itemid for symbol and ref and what not
-                self.resolve_fndec(itemid)
+                self.resolve_fndec_item(itemid)
+            },
+            Item::StructDec(_) =>  {
+                self.resolve_structdec_item(itemid)
             },
             // _ => panic!("Impl resolve item"),
         }
@@ -411,6 +461,19 @@ impl<'ctx> SymbolResolver<'ctx> {
                     .declare_object_forward_dec(f.name.clone(), id)?;
                 Ok(())
             },
+            Item::StructDec(s) => {
+                // declare place holder
+                let sd = s.clone();
+                let ty = Type::Struct(Struct{
+                    name: sd.name.clone(),
+                    fields: vec![],
+                });
+                let id = self.ctx.declare_type(ty.clone());
+                // declare predec
+                self.get_scope_mut(self.current_scope).unwrap()
+                    .declare_type_forward_dec(sd.name.clone(), id)?;
+                Ok(())
+            },
             // _ => panic!("Impl resolve item"),
         }
     }
@@ -480,7 +543,6 @@ impl Scope {
                     format!("object {} is expected to be a type", name)));
         }
         if let Some(_) = self.object_forward_decs.get(&name) {
-            debugln!("Objecr {} is a forward dec", name);
             self.object_forward_decs.remove(&name);
         }
         self.objects.insert(name, id);

@@ -125,8 +125,9 @@ impl Context {
         id
     }
     pub fn declare_type(&mut self, ty: symbols::Type) -> symbols::TypeId {
-        self.types.push(ty);
-        symbols::TypeId(self.types.len() -1)
+        self.intern_type(ty)
+        /*self.types.push(ty);
+        symbols::TypeId(self.types.len() -1)*/
     }
     pub fn base_scope_get_type(&mut self, name: &String) ->
         Result<symbols::TypeId, String> {
@@ -135,7 +136,7 @@ impl Context {
                     debugln!("Base type: {:?}", t);
                     Ok(*t)
                 },
-                None => Err(String::from("Type doesn't exist")),
+                None => Err(String::from(format!("Type {} doesn't exist", name))),
             }
     }
     // intern types
