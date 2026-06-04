@@ -81,12 +81,6 @@ impl Expr {
             _ => false,
         }
    }
-    pub fn is_mutable(&self) -> bool {
-        match self {
-            Expr::Symbol(_) => true,
-            _ => false,
-        }
-    }
 }
 #[derive(Clone,Debug)]
 pub struct Binop {
@@ -207,22 +201,21 @@ pub struct Module {
 pub struct Parser<'ctx> {
     ctx: &'ctx mut resolver::Context,
     lexer: lexer::Lexer,
-    flags: usize,
     parse_struct_lit: bool,
     pub root: ModId,
 }
 impl<'ctx> Parser<'ctx> {
-    fn new_stmt(&mut self, stmt: Stmt) -> StmtId {
-        self.ctx.new_stmt(stmt)
+    fn new_stmt(&mut self, stmt: Stmt, span: lexer::Span) -> StmtId {
+        self.ctx.new_stmt(stmt, span)
     }
-    fn new_expr(&mut self, expr: Expr) -> ExprId {
-        self.ctx.new_expr(expr)
+    fn new_expr(&mut self, expr: Expr, span: lexer::Span) -> ExprId {
+        self.ctx.new_expr(expr, span)
     }
-    fn new_module(&mut self, m: Module) -> ModId {
-        self.ctx.new_mod(m)
+    fn new_module(&mut self, m: Module, span: lexer::Span) -> ModId {
+        self.ctx.new_mod(m, span)
     }
-    fn new_item(&mut self, item: Item) -> ItemId {
-        self.ctx.new_item(item)
+    fn new_item(&mut self, item: Item, span: lexer::Span) -> ItemId {
+        self.ctx.new_item(item, span)
     }
     fn current(&mut self) -> lexer::Token {
         return if let Some(t) = self.lexer.current() {
@@ -296,14 +289,35 @@ impl<'ctx> Parser<'ctx> {
         self.parse_struct_lit = prev;
         expr
     }
+    fn get_current_span(&mut self) -> lexer::Span {
+        match self.current() {
+            lexer::Token::Symbol(_,s) => s,
+            lexer::Token::Keyword(_,s) => s,
+            lexer::Token::Ident(_,s) => s,
+            lexer::Token::Num(_,s) => s,
+            lexer::Token::EOF => panic!("what"),
+        }
+    }
+    fn get_prev_span(&mut self) -> lexer::Span {
+        
+        match self.lexer.prev().unwrap().clone() {
+            lexer::Token::Symbol(_,s) => s,
+            lexer::Token::Keyword(_,s) => s,
+            lexer::Token::Ident(_,s) => s,
+            lexer::Token::Num(_,s) => s,
+            lexer::Token::EOF => panic!("what"),
+        }
+    }
     fn parse_return_stmt(&mut self) -> Result<StmtId, ParserErr> {
+        let span = self.get_current_span();
         self.expect_kw(Keyword::Return)?;
         let expr = self.parse_expr()?;
         self.expect(";")?;
-        Ok(self.new_stmt(Stmt::Return(expr)))
+        Ok(self.new_stmt(Stmt::Return(expr), span))
     }
     fn parse_if_stmt(&mut self) -> Result<StmtId, ParserErr> {
         self.expect_kw(Keyword::If)?;
+        let span = self.get_prev_span();
         let cond = self.parse_if_condition()?;
         let body = self.parse_block()?;
         let mut alts = Vec::<IfElseAltCond>::new();
@@ -329,7 +343,7 @@ impl<'ctx> Parser<'ctx> {
             alt: alts, else_block,
         };
 
-        Ok(self.new_stmt(Stmt::IfStmt(s)))
+        Ok(self.new_stmt(Stmt::IfStmt(s), span))
     }
     fn parse_stmt(&mut self) -> Result<StmtId, ParserErr> {
         match self.current() {
@@ -343,6 +357,7 @@ impl<'ctx> Parser<'ctx> {
         }
     }
     fn parse_struct_dec(&mut self) -> Result<ItemId,ParserErr> {
+        let span = self.get_current_span();
         self.expect_kw(lexer::Keyword::Struct)?;
         let name = self.expect_ident()?;
         self.expect("{")?;
@@ -357,15 +372,13 @@ impl<'ctx> Parser<'ctx> {
             }
         }
         self.expect("}")?;
-        Ok(self.new_item(Item::StructDec(StructDec { name, fields })))
+        Ok(self.new_item(Item::StructDec(StructDec { name, fields }),span))
     }
     fn parse_fn_dec(&mut self) -> Result<ItemId,ParserErr> {
         // make sure it's kw fn
-        if !matches!(self.current(), Token::Keyword(lexer::Keyword::Fn, _)) {
-            return Err(ParserErr::Expected(
-                    String::from("keyword fn"), self.current()));
-        }
-        let _token = self.next(); // consume token
+        self.expect_kw(Keyword::Fn)?;
+        let span = self.get_prev_span();
+
         let name = self.expect_ident()?;
         self.expect("(")?; // expect "(" args ")"
         let  args = if self.is_symbol(")") { // set to empty vector
@@ -391,7 +404,7 @@ impl<'ctx> Parser<'ctx> {
         let fndec = FnDec {
             name, args, ret_ty, body
         };
-        Ok(self.new_item(Item::FnDec(fndec)))
+        Ok(self.new_item(Item::FnDec(fndec), span))
     }
     // consumes
     fn expect_ident(&mut self) -> Result<String,ParserErr>{
@@ -420,6 +433,7 @@ impl<'ctx> Parser<'ctx> {
     }
     fn parse_primary(&mut self) -> Result<ExprId, ParserErr> {
         let t =  self.current();
+        let span = self.get_current_span();
         match t {
             lexer::Token::Ident(s,_span) => {
                 self.next();
@@ -441,16 +455,16 @@ impl<'ctx> Parser<'ctx> {
                     }
                     self.expect("}")?;
                     Ok(self.new_expr(Expr::StructLit(StructLit{
-                        ty: s.clone(), fields })))
+                        ty: s.clone(), fields }), span))
                 } else {
                 let e = Expr::Symbol(Symbol { symbol: s });
-                    Ok(self.new_expr(e))
+                    Ok(self.new_expr(e, span))
                 }
             },
             lexer::Token::Num(n,_span) => {
                 self.next();
                 let e = Expr::Number(Number { str: n});
-                Ok(self.new_expr(e))
+                Ok(self.new_expr(e, span))
             }
             lexer::Token::Symbol(s,_span) if s.eq("(") => {
                 self.next();
@@ -470,6 +484,7 @@ impl<'ctx> Parser<'ctx> {
 
     }
     fn parse_postfix(&mut self) -> Result<ExprId, ParserErr> {
+        let span = self.get_current_span();
         let mut primary = self.parse_primary()?;
         loop { match self.current() {
             Token::Symbol(s,_) if s == "(" => {
@@ -492,7 +507,7 @@ impl<'ctx> Parser<'ctx> {
                 };
                 self.expect(")")?;
                 let e = Expr::FnCall(FnCall{target, args});
-                primary = self.new_expr(e);
+                primary = self.new_expr(e,span.clone());
             },
             _ => break
         }
@@ -500,6 +515,7 @@ impl<'ctx> Parser<'ctx> {
         Ok(primary)
     }
     fn parse_binop(&mut self) -> Result<ExprId, ParserErr> {
+        let span = self.get_current_span();
         let lhs = self.parse_postfix()?;
         match self.current() {
             lexer::Token::Symbol(s,_span) => {
@@ -527,7 +543,7 @@ impl<'ctx> Parser<'ctx> {
                                         String::from(
                                             "Invalid symbol in binop?")))
                             }});
-                        Ok(self.new_expr(e))
+                        Ok(self.new_expr(e,span))
                     },
                     _ => {
                         return Ok(lhs);
@@ -557,6 +573,7 @@ impl<'ctx> Parser<'ctx> {
     }
     // horrible looking function
     fn parse_vardec(&mut self) -> Result<StmtId, ParserErr> {
+        let span = self.get_current_span();
         let ident = self.expect_ident()?;
         match self.current() {
             lexer::Token::Symbol(s,_span) => {
@@ -569,7 +586,7 @@ impl<'ctx> Parser<'ctx> {
                             ty: Option::None,
                             val: Option::Some(rhs)
                         });
-                        Ok(self.new_stmt(e))
+                        Ok(self.new_stmt(e, span))
                     },
                     ":" => { // "a : type..."
                         self.next(); // ":"
@@ -586,7 +603,7 @@ impl<'ctx> Parser<'ctx> {
                                         ty: Some(t),
                                         val: Some(rhs),
                                     });
-                                    Ok(self.new_stmt(e))
+                                    Ok(self.new_stmt(e, span))
                                 }
                             // "a: type"
                             _ => /*Ok(self.new_stmt(Stmt::VarDec(VarDec{
@@ -629,6 +646,7 @@ impl<'ctx> Parser<'ctx> {
         }
     }
     fn parse_expr_stmt(&mut self) -> Result<StmtId, ParserErr> {
+        let span = self.get_current_span();
         if self.current().is_ident() && self.peek().is_vardec_symbol() {
             let r = self.parse_vardec()?;
             self.expect(";")?; // expect semicolon
@@ -657,10 +675,10 @@ impl<'ctx> Parser<'ctx> {
                 }
             };
             self.expect(";")?; // expect semicolon
-            Ok(self.new_stmt(Stmt::Assignment(assignment)))
+            Ok(self.new_stmt(Stmt::Assignment(assignment), span))
         } else {
             self.expect(";")?; // expect semicolon
-            Ok(self.new_stmt(Stmt::Expr(s)))
+            Ok(self.new_stmt(Stmt::Expr(s), span))
         }
     }
     fn parse_module_tls(&mut self) -> Result<Vec<ItemId>, ParserErr> {
@@ -690,11 +708,11 @@ impl<'ctx> Parser<'ctx> {
     pub fn parse(ctx: &'ctx mut resolver::Context, lexer: lexer::Lexer) -> ModId {
         let mut p: Parser = Parser{
             ctx,
-            flags: 0,
             parse_struct_lit: true,
             lexer,
             root: ModId(0),
         };
+        let span = p.get_current_span();
         let root = match  p.parse_module_tls() {
             Ok(root) => root,
             Err(e) => match e {
@@ -707,8 +725,38 @@ impl<'ctx> Parser<'ctx> {
             },
         };
         println!("AST: {:?}", root);
-        p.root = p.new_module(Module { items: root });
+        p.root = p.new_module(Module { items: root }, span);
         return p.root;
+    }
+    fn peinvalid(&self, s: String, exprid: ExprId) -> ParserErr {
+        let expr = self.ctx.get_expr(exprid).unwrap();
+        let exprref = self.ctx.get_expr_ref(exprid);
+        let span = self.ctx.exprs_span.get(exprid.0).unwrap();
+        let err = match exprref {
+            Some(r) => format!("{}: {:?} at {:?}", s, r, span),
+            None => format!("{}: {:?} at {:?}", s, expr, span),
+        };
+        ParserErr::Invalid(err)
+    }
+    fn peinvalid_stmt(&self, s: String, stmtid: StmtId) -> ParserErr {
+        let stmt = self.ctx.get_stmt(stmtid).unwrap();
+        let stmtref = self.ctx.get_vardec_ref(stmtid);
+        let span = self.ctx.stmts_span.get(stmtid.0).unwrap();
+        let err = match stmtref {
+            Some(r) => format!("{}: {:?} at {:?}", s, r, span),
+            None => format!("{}: {:?} at {:?}", s, stmt, span),
+        };
+        ParserErr::Invalid(err)
+    }
+    fn peinvalid_item(&self, s: String, itemid: ItemId) -> ParserErr {
+        let item = self.ctx.get_item(itemid).unwrap();
+        let span = self.ctx.items_span.get(itemid.0).unwrap();
+        let err = match (self.ctx.get_item_fn_ref(itemid), self.ctx.get_item_ty_ref(itemid)) {
+            (Some(r), _) => format!("{}: {:?} at {:?}", s, r, span),
+            (_, Some(r)) => format!("{}: {:?} at {:?}", s, r, span),
+            (None, None) => format!("{}: {:?} at {:?}", s, item, span),
+        };
+        ParserErr::Invalid(err)
     }
 }
 impl Display for Stmt {

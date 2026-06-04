@@ -11,14 +11,27 @@ pub struct Context {
     exprs:  Vec<parser::Expr>,
     items:  Vec<parser::Item>,
     mods:   Vec<parser::Module>,
+    // spans for each
+    pub stmts_span:  Vec<lexer::Span>,
+    pub exprs_span:  Vec<lexer::Span>,
+    pub items_span:  Vec<lexer::Span>,
+    pub mods_span:   Vec<lexer::Span>,
+
+
+    // references for objects
     vardec_refs: HashMap<parser::StmtId, symbols::ObjectId>, // vardecs
     expr_refs: HashMap<parser::ExprId, symbols::ObjectId>,
     item_fn_refs: HashMap<parser::ItemId, symbols::ObjectId>, // for functions and vars
+
+    // struct decs item return a type
     item_ty_refs: HashMap<parser::ItemId, symbols::TypeId>, // for structs, alias
     // struct lit expr to it's resolved supposed type
     struct_lit_refs: HashMap<parser::ExprId, symbols::TypeId>,
+
+    // expressions type
     expr_ty_refs: HashMap<parser::ExprId, symbols::TypeId>,
 
+    // stores
     objects: Vec<symbols::Object>,
     types: Vec<symbols::Type>,
     base_scope: symbols::Scope,
@@ -31,6 +44,10 @@ impl Context {
             exprs: Vec::new(),
             items: Vec::new(),
             mods: Vec::new(),
+            stmts_span: Vec::new(),
+            exprs_span: Vec::new(),
+            items_span: Vec::new(),
+            mods_span: Vec::new(),
 
             // refs
             vardec_refs: HashMap::new(),
@@ -87,20 +104,24 @@ impl Context {
         Some(self.expr_ty_refs.get(&exprid).unwrap().clone())
     }
 
-    pub fn new_stmt(&mut self, stmt: parser::Stmt) -> parser::StmtId {
+    pub fn new_stmt(&mut self, stmt: parser::Stmt, span: lexer::Span) -> parser::StmtId {
         self.stmts.push(stmt);
+        self.stmts_span.push(span);
         return parser::StmtId::new(self.stmts.len() - 1);
     }
-    pub fn new_expr(&mut self, expr: parser::Expr) -> parser::ExprId {
+    pub fn new_expr(&mut self, expr: parser::Expr, span: lexer::Span) -> parser::ExprId {
         self.exprs.push(expr);
+        self.exprs_span.push(span);
         return parser::ExprId::new(self.exprs.len() - 1);
     }
-    pub fn new_item(&mut self, item: parser::Item) -> parser::ItemId {
+    pub fn new_item(&mut self, item: parser::Item, span: lexer::Span) -> parser::ItemId {
         self.items.push(item);
+        self.items_span.push(span);
         return parser::ItemId::new(self.items.len() - 1);
     }
-    pub fn new_mod(&mut self, m: parser::Module) -> parser::ModId {
+    pub fn new_mod(&mut self, m: parser::Module, span: lexer::Span) -> parser::ModId {
         self.mods.push(m);
+        self.mods_span.push(span);
         return parser::ModId::new(self.mods.len() - 1);
     }
     pub fn get_expr(&self, id: parser::ExprId) -> Result<&parser::Expr, String> {

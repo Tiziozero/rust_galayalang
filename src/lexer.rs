@@ -61,6 +61,13 @@ impl Lexer {
         let t = &self.tokens[self.index as usize];
         return Some(t);
     }
+    pub fn prev(&mut self) -> Option<&Token> {
+        if self.index < 1 {
+            return None;
+        }
+        let t = &self.tokens[self.index as usize - 1];
+        return Some(t);
+    }
     pub fn next(&mut self) -> Option<&Token> {
         if self.index > self.tokens.len() as usize - 1 {
             return None;
