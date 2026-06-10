@@ -31,7 +31,7 @@ pub struct StructField {
 #[derive(Debug,Clone,PartialEq)]
 pub struct Struct {
     pub name: String,
-    pub fields: Vec<StructField>,
+    pub fields: HashMap<String,StructField>,
 }
 impl PartialEq for Function {
     fn eq(&self, other: &Self) -> bool {
@@ -59,10 +59,10 @@ pub enum Type {
     IntLiteral,
 }
 impl Type {
-    pub fn is_struct(&self) -> bool {
+    pub fn is_struct(&self) -> Result<&Struct, String> {
         match self {
-            Self::Struct(_) => true,
-            _ => false
+            Self::Struct(s) => Ok(&s),
+            s => Err(format!("type is {:?}.", s))
         }
     }
     pub fn is_cond(&self) -> bool {
@@ -186,6 +186,7 @@ impl<'ctx> SymbolResolver<'ctx> {
     fn resolve_expr(&mut self, exprid: ExprId) -> Result<(), String> {
         let expr = self.ctx.get_expr(exprid).unwrap().clone();
         match expr {
+            parser::Expr::FieldAccess(f) => self.resolve_expr(f.target),
             parser::Expr::Number(_) => Ok(()),
             parser::Expr::Symbol(s) => {
                 let name = s.symbol.clone();
@@ -357,17 +358,13 @@ impl<'ctx> SymbolResolver<'ctx> {
         parser::Item::StructDec(s) => s.clone(),
         _ => panic!("other item when fndec expected"),
     };
-    let mut seen = std::collections::HashSet::new();
-    let mut fields = Vec::<StructField>::new();
+    let mut fields = HashMap::<String,StructField>::new();
     for a in &structdec.fields {
-        if !seen.insert(a.name.clone()) {
-            return Err(format!(
-                "Struct '{}' has duplicate field '{}'.",
-                structdec.name, a.name
-            ));
-        }
         let ty = self.resolve_type(&a.ty)?;
-        fields.push(StructField { name: a.name.clone(), ty });
+        if fields.contains_key(&a.name) {
+            return Err(format!("duplicate field {}.", a.name));
+        }
+        fields.insert(a.name.clone(),StructField { name: a.name.clone(), ty });
     }
     let ty = Type::Struct(Struct { name: structdec.name.clone(), fields });
     self.declare_type(structdec.name.clone(), ty).unwrap();
@@ -509,7 +506,7 @@ fn resolve_struct_lit(&mut self, id: parser::ExprId) -> Result<(), String> {
                 let sd = s.clone();
                 let ty = Type::Struct(Struct{
                     name: sd.name.clone(),
-                    fields: vec![],
+                    fields: HashMap::new(),
                 });
                 let id = self.ctx.declare_type(ty.clone());
                 // declare predec

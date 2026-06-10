@@ -1,8 +1,8 @@
 fn fill(i: f): i32 {
     v: f = i;
+    k := v.x;
     c: i32 = 0;
     v = f{x=c};
-    i = v;
     return 0;
 }
 struct f {

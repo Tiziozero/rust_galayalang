@@ -132,6 +132,12 @@ pub enum Expr {
     Number(Number),
     FnCall(FnCall),
     StructLit(StructLit),
+    FieldAccess(FieldAccess),
+}
+#[derive(Clone,Debug)]
+pub struct FieldAccess {
+    pub target: ExprId,
+    pub field_name: String,
 }
 #[derive(Clone, Debug)]
 pub struct StructLit {
@@ -486,7 +492,14 @@ impl<'ctx> Parser<'ctx> {
     fn parse_postfix(&mut self) -> Result<ExprId, ParserErr> {
         let span = self.get_current_span();
         let mut primary = self.parse_primary()?;
-        loop { match self.current() {
+        loop {
+            match self.current() {
+            Token::Symbol(s,_) if s == "." => {
+                self.next(); // "."
+                let target = primary;
+                let field_name = self.expect_ident()?;
+                return Ok(self.new_expr(Expr::FieldAccess(FieldAccess { target, field_name }), span));
+            },
             Token::Symbol(s,_) if s == "(" => {
                 self.next();
                 let target = primary;

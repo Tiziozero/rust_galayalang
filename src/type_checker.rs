@@ -28,6 +28,10 @@ impl<'ctx> TypeChecker<'ctx> {
                 self.ctx.new_expr_ty_ref(expr, ty);
                 Ok(())
             },
+            parser::Expr::FieldAccess(_) => {
+                panic!("Impl");
+                // Ok(())
+            },
             parser::Expr::Symbol(_) => {
                 // symbols have a declared type, don't overwrite
                 Ok(())
@@ -95,12 +99,11 @@ impl<'ctx> TypeChecker<'ctx> {
             ));
         }
         for f in &s.fields {
-            let expected = ty.fields.iter()
-                .find(|sf| sf.name == f.name)
-                .ok_or_else(|| format!("Struct '{}' has no field '{}'.", ty.name, f.name))?;
-            let expr_ty = self.tc_expr(f.expr)?;
-            let res = self.compare_and_reduce_types(expr_ty, expected.ty)?;
-            self.propagate_type(f.expr, res)?;
+            let expected: bool;
+            panic!("Impl");
+            //let expr_ty = self.tc_expr(f.expr)?;
+            //let res = self.compare_and_reduce_types(expr_ty, expected.ty)?;
+            //self.propagate_type(f.expr, res)?;
         }
         self.ctx.new_expr_ty_ref(id, tyid);
         Ok(tyid)
@@ -108,6 +111,16 @@ impl<'ctx> TypeChecker<'ctx> {
     fn tc_expr(&mut self, id: parser::ExprId) -> Result<symbols::TypeId, String> {
         let expr = self.ctx.get_expr(id).unwrap().clone();
         match expr {
+            parser::Expr::FieldAccess(f) => {
+                let target_ty_id = self.ctx.get_expr_ty_ref(f.target).unwrap();
+                let target_ty = self.ctx.get_type(target_ty_id).clone().unwrap().is_struct()?;
+                let field = target_ty.fields.get(&f.field_name).ok_or(format!(
+                        "Struct {:?} doesn't contain key {}.",
+                        target_ty, f.field_name)).clone()?;
+                let ty_id = field.ty.clone();
+                self.ctx.new_expr_ty_ref(id, ty_id);
+                panic!("Impl");
+            }
             parser::Expr::StructLit(_) => {
                 let type_id = self.tc_struct_lit(id)?;
                 self.ctx.new_expr_ty_ref(id, type_id);
@@ -220,7 +233,7 @@ impl<'ctx> TypeChecker<'ctx> {
         let r = self.ctx.get_type(right).unwrap().clone();
         if l.is_numeric() && r.is_numeric() {
             return self.compare_and_reduce_numerics(left, right);
-        } else if l.is_struct() && r.is_struct() {
+        } else if l.is_struct().is_ok() && r.is_struct().is_ok() {
             self.compare_struct_types(left, right)
         } else {
             Err(format!("types {:?} and {:?} aren't coherent.", l, r))
@@ -346,7 +359,7 @@ impl<'ctx> TypeChecker<'ctx> {
         match item {
             parser::Item::FnDec(_) => self.tc_fndec(id),
             parser::Item::StructDec(_) => Ok(()), // nothing to do
-            _ => panic!("Handle item {:?}.", item),
+            // _ => panic!("Handle item {:?}.", item),
         }
     }
 }
